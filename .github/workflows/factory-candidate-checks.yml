@@ -132,7 +132,7 @@ jobs:
             "$PWD/acceptance-output/acceptance.json" "$PWD/dependencies/node_modules"
       - name: Save measured backend acceptance
         if: startsWith(github.ref, 'refs/heads/factory/') && !cancelled()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: office-role-acceptance-v1
           path: acceptance-output/acceptance.json
@@ -165,7 +165,7 @@ jobs:
             "$PWD/office-ui-output" "$PWD/dependencies/node_modules"
       - name: Save measured office UI regression
         if: startsWith(github.ref, 'refs/heads/factory/') && !cancelled()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: office-ui-simulation-v1
           path: office-ui-output
