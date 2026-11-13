@@ -37,7 +37,7 @@ jobs:
       FACTORY_SOURCE_REF: ${{ steps.cfg.outputs.FACTORY_SOURCE_REF }}
       ready_factory: ${{ steps.cfg.outputs.ready_factory }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           sparse-checkout: .github
           persist-credentials: false
@@ -73,7 +73,7 @@ jobs:
           if [ -z "$SOURCE_REF" ]; then echo "::error::FACTORY_SOURCE_REF and OFFICE_SOURCE_REF are empty"; exit 1; fi
 
       - name: Check out the factory source in production
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.config.outputs.FACTORY_SOURCE_REF || needs.config.outputs.OFFICE_SOURCE_REF }}
           persist-credentials: false

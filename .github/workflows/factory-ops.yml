@@ -53,7 +53,7 @@ jobs:
       OFFICE_SOURCE_REF: ${{ steps.cfg.outputs.OFFICE_SOURCE_REF }}
       ready_ops: ${{ steps.cfg.outputs.ready_ops }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           sparse-checkout: .github
           persist-credentials: false
@@ -85,7 +85,7 @@ jobs:
           if [ -z "$OFFICE_SOURCE_REF" ]; then echo "::error::OFFICE_SOURCE_REF is empty"; exit 1; fi
 
       - name: Check out the reviewed production source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.config.outputs.OFFICE_SOURCE_REF }}
           persist-credentials: false
