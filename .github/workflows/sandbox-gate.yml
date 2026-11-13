@@ -182,7 +182,7 @@ jobs:
           mkdir -p gate-report
           node script/release-gate/run-tests.mjs --out gate-report/tests.json \
             --strict-from .github/workflows/factory-candidate-checks.yml,.github/workflows/factory-build-recovery-checks.yml
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: release-gate-tests
@@ -342,7 +342,7 @@ jobs:
             exit 1
           fi
           echo "schema in sync, no destructive statements"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: release-gate-sandbox
@@ -403,7 +403,7 @@ jobs:
             for result in "$TYPECHECK" "$TESTS" "$IMPORTS" "$SANDBOX"; do ok "$result" || { echo "::error::release gate failed"; exit 1; }; done
           fi
           echo "release gate passed"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: release-gate-report
