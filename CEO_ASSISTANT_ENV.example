@@ -1,0 +1,189 @@
+# BlackOps CEO Assistant production env example
+
+# Core app/database
+NODE_ENV=production
+PORT=5000
+HOST=0.0.0.0
+DATABASE_URL=replace-with-production-postgres-url
+
+# Auth/user context
+SESSION_SECRET=replace-with-long-random-secret
+LOCAL_AUTH_ENABLED=true
+ALLOW_LOCAL_AUTH_REGISTRATION=false
+ALLOW_DEV_USER_FALLBACK=false
+DEFAULT_USER_ID=replace-after-running-auth-create-user
+
+# AI
+AI_INTEGRATIONS_GEMINI_API_KEY=replace-with-gemini-api-key
+# AI_INTEGRATIONS_GEMINI_BASE_URL=
+
+# Telegram CEO channel
+TELEGRAM_BOT_TOKEN=replace-with-botfather-token
+PUBLIC_APP_URL=https://your-domain.example
+# App QA Visual Click Scout. Use http://127.0.0.1:5000 for local QA, or production domain for hosted QA.
+APP_QA_BASE_URL=https://your-domain.example
+# Lowest-cost QA defaults: lightweight checks every 30 min; browser QA twice daily or when manually requested.
+# No AI API is used by App QA.
+APP_QA_INTERVAL_MINUTES=30
+# Options: off, manual, daily, every_scan. Keep daily/manual for lowest CPU cost.
+APP_QA_VISUAL_MODE=daily
+# Hours in America/New_York when APP_QA_VISUAL_MODE=daily. Default runs deep visual QA at 8 AM and 8 PM.
+APP_QA_VISUAL_HOURS=8,20
+# TELEGRAM_WEBHOOK_URL=https://your-domain.example/api/telegram/webhook
+TELEGRAM_WEBHOOK_SECRET=replace-with-telegram-webhook-secret
+# Keep false unless you intentionally want startup to call Telegram setWebhook.
+TELEGRAM_AUTO_SETUP_WEBHOOK=false
+
+# Scheduler
+SCHEDULER_TIMEZONE=America/New_York
+CEO_BRIEF_HOUR=7
+CEO_BRIEF_MINUTE=0
+INSIGHTS_HOUR=8
+NEWS_DIGEST_HOUR=9
+EVENING_REVIEW_HOUR=21
+DROPSHIPPING_CEO_CYCLE_HOUR=7
+DROPSHIPPING_CEO_CYCLE_MINUTE=20
+DROPSHIPPING_CEO_MORNING_HOUR=7
+DROPSHIPPING_CEO_MORNING_MINUTE=30
+DROPSHIPPING_CEO_EVENING_HOUR=21
+DROPSHIPPING_CEO_EVENING_MINUTE=0
+
+# Dropshipping CEO budget guardrails
+DROPSHIPPING_STARTING_MONTHLY_BUDGET_USD=100
+DROPSHIPPING_TARGET_MONTHLY_REVENUE_USD=1000
+DROPSHIPPING_DAILY_SPEND_CAP_USD=10
+DROPSHIPPING_REQUIRE_APPROVALS_FOR_EXTERNAL_ACTIONS=true
+DROPSHIPPING_REQUIRE_SAMPLE_BEFORE_SCALE=true
+
+# Backup/restore preflight
+CEO_BACKUP_DIR=backups/ceo-assistant
+# Set true only after CEO_ASSISTANT_ENV, .env, .env.local, credentials/ and secrets/
+# are covered by encrypted off-machine backup.
+CEO_BACKUP_SECRETS_ENCRYPTED=false
+
+# Optional integrations
+
+# Metricool tracking / social publishing
+# Preferred path for social scheduling, analytics, best-time insights, and multi-brand reporting.
+# Add these only in local/deployment secrets, never in chat or committed docs.
+# Metricool MCP official server: https://ai.metricool.com/mcp
+# Local MCP package command: uvx --upgrade mcp-metricool
+# METRICOOL_USER_TOKEN=replace-with-metricool-user-token
+# METRICOOL_USER_ID=replace-with-metricool-user-id
+# METRICOOL_MCP_URL=https://ai.metricool.com/mcp
+# METRICOOL_REQUIRE_APPROVAL_FOR_PUBLISH=true
+
+# Revenue Engine email provider
+# Required only when you want the outbox to send approved outreach by API.
+# Without these values the app stays in manual Gmail/mailto mode.
+# RESEND_API_KEY=re_replace-with-resend-api-key
+# REVENUE_ENGINE_FROM_EMAIL="Revenue Engine <sales@your-domain.example>"
+
+# Dropshipping CEO / Shopify
+# V1 can operate in research/draft mode without these.
+# Set these when Shopify is ready for product/order/report integrations.
+# Shopify OAuth app credentials come from Shopify Dev Dashboard.
+# App URL: https://your-domain.example/api/shopify/install
+# Allowed redirection URL: https://your-domain.example/api/shopify/oauth/callback
+# Scopes for draft product creation: read_products,write_products
+# SHOPIFY_APP_CLIENT_ID=replace-with-shopify-client-id
+# SHOPIFY_APP_CLIENT_SECRET=replace-with-shopify-client-secret
+# SHOPIFY_OAUTH_REDIRECT_URI=https://your-domain.example/api/shopify/oauth/callback
+# SHOPIFY_OAUTH_SCOPES=read_products,write_products
+# SHOPIFY_SHOP_DOMAIN=your-store.myshopify.com
+# SHOPIFY_ADMIN_ACCESS_TOKEN=shpat_replace-with-token
+# SHOPIFY_API_VERSION=2026-04
+
+# Dropshipping CEO / Social publisher
+# Optional generic webhook for approved posts. Without it, posts stay in draft/queue/manual mode.
+# Optional if Metricool MCP is configured with METRICOOL_USER_TOKEN + METRICOOL_USER_ID.
+# Use this only for a compatible wrapper that accepts Dropshipping CEO publish payloads.
+# DROPSHIPPING_SOCIAL_PUBLISH_WEBHOOK_URL=https://your-social-publisher.example/webhook
+# DROPSHIPPING_SOCIAL_PUBLISH_WEBHOOK_TOKEN=replace-with-webhook-token
+
+# Dropshipping CEO / Supplier fulfillment
+# Start with manual or DSers. No supplier order is executed without approval.
+# DROPSHIPPING_SUPPLIER_EXECUTION_MODE=manual
+# DROPSHIPPING_SUPPLIER_PORTAL_URL=https://www.dsers.com/
+# DROPSHIPPING_SUPPLIER_ORDER_WEBHOOK_URL=https://your-fulfillment-handoff.example/webhook
+# DROPSHIPPING_SUPPLIER_ORDER_WEBHOOK_TOKEN=replace-with-supplier-webhook-token
+
+# Dropshipping CEO / Store policy readiness markers
+# STORE_PAYMENT_PROCESSOR=shopify_payments
+# Optional overrides. Defaults derive from PUBLIC_APP_URL:
+#   /dropshipping/legal/refund-policy
+#   /dropshipping/legal/privacy
+# DROPSHIPPING_RETURN_POLICY_URL=https://your-store.example/policies/refund-policy
+# DROPSHIPPING_PRIVACY_POLICY_URL=https://your-store.example/policies/privacy-policy
+
+# Dropshipping CEO / Optional local data overrides
+# DROPSHIPPING_PRODUCT_SCOUT_CANDIDATES_PATH=dropshipping_engine_data/product_scout_candidates.json
+# DROPSHIPPING_GROWTH_SPRINTS_PATH=dropshipping_engine_data/growth_sprints.json
+# DROPSHIPPING_LAUNCH_PACKS_PATH=dropshipping_engine_data/launch_packs.json
+# DROPSHIPPING_APPROVAL_OUTBOX_PATH=dropshipping_engine_data/approval_outbox.json
+
+# Clippers command center
+# PUBLIC_BASE_URL=https://your-domain.example
+# CLIPPERS_TOKEN_ENCRYPTION_KEY=replace-with-32-plus-character-secret
+# TIKTOK_CLIENT_KEY=
+# TIKTOK_CLIENT_SECRET=
+# META_APP_ID=
+# META_APP_SECRET=
+# GOOGLE_CLIENT_ID=
+# GOOGLE_CLIENT_SECRET=
+# GOOGLE_DRIVE_REDIRECT_URI=https://your-domain.example/api/google-drive/oauth/callback
+# GOOGLE_DRIVE_SCOPES=https://www.googleapis.com/auth/drive.file
+# Optional: set this instead of connecting through /api/google-drive/auth
+# GOOGLE_REFRESH_TOKEN=
+# Optional: root folder where Clippers creates YouTube/Drive subfolders
+# GOOGLE_DRIVE_CLIPPERS_ROOT_FOLDER_ID=
+
+# AI/API cost notifications
+# The app estimates cost after paid AI calls and notifies Robert in chat, audit logs,
+# push notifications, and Telegram when configured.
+# BLACKOPS_AI_COST_NOTIFY_MIN_USD=0.0001
+# BLACKOPS_OPENAI_TRANSCRIPTION_USD_PER_MINUTE=0.017
+# BLACKOPS_OPENAI_INPUT_USD_PER_1M=2.5
+# BLACKOPS_OPENAI_OUTPUT_USD_PER_1M=15
+# BLACKOPS_OPENAI_MINI_INPUT_USD_PER_1M=0.75
+# BLACKOPS_OPENAI_MINI_OUTPUT_USD_PER_1M=4.5
+# BLACKOPS_OPENAI_GPT55_INPUT_USD_PER_1M=5
+# BLACKOPS_OPENAI_GPT55_OUTPUT_USD_PER_1M=30
+# BLACKOPS_GEMINI_FLASH_LITE_INPUT_USD_PER_1M=0.25
+# BLACKOPS_GEMINI_FLASH_LITE_OUTPUT_USD_PER_1M=1.5
+# BLACKOPS_GEMINI_INPUT_USD_PER_1M=0.5
+# BLACKOPS_GEMINI_OUTPUT_USD_PER_1M=3
+
+# Canva radio templates
+# CANVA_CLIENT_ID=
+# CANVA_CLIENT_SECRET=
+# CANVA_REDIRECT_URI=https://your-domain.example/api/canva/oauth/callback
+# CANVA_RADIO_BRAND_TEMPLATE_ID=EAHMxABUd6M
+# CANVA_RADIO_DJ_FIELD=dj_name
+# CANVA_SCOPES=brandtemplate:content:read brandtemplate:meta:read design:content:read design:content:write
+
+# Google Drive radio templates
+# GOOGLE_CLIENT_ID=
+# GOOGLE_CLIENT_SECRET=
+# GOOGLE_DRIVE_REDIRECT_URI=https://your-domain.example/api/google-drive/oauth/callback
+# GOOGLE_DRIVE_SCOPES=https://www.googleapis.com/auth/drive.file
+# Optional: set this instead of connecting through /api/google-drive/auth
+# GOOGLE_REFRESH_TOKEN=
+# GOOGLE_DRIVE_RADIO_FOLDER_ID=
+# Optional: root folder where Clippers creates YouTube/Drive subfolders
+# GOOGLE_DRIVE_CLIPPERS_ROOT_FOLDER_ID=
+
+# Black Room admin links
+# BLACKROOM_ADMIN_BASE_URL=https://blackroomus.com
+# Use one of these depending on how blackroomus.com admin auth is configured:
+# BLACKROOM_ADMIN_COOKIE=
+# BLACKROOM_ADMIN_BEARER_TOKEN=
+# BLACKROOM_ADMIN_API_KEY=
+
+# FINNHUB_API_KEY=
+# ZOHO_CLIENT_ID=
+# ZOHO_CLIENT_SECRET=
+# ZOHO_REFRESH_TOKEN=
+# VAPID_PUBLIC_KEY=
+# VAPID_PRIVATE_KEY=
+# VAPID_SUBJECT=mailto:blackops@reminder.app

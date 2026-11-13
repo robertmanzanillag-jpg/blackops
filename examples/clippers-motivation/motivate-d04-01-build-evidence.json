@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "shortId": "motivate-d04-01-build-evidence",
+  "channelId": "motivation-en",
+  "language": "en",
+  "format": "youtube_short_9x16",
+  "launchDay": 4,
+  "launchPosition": 1,
+  "topic": "build-evidence",
+  "script": {
+    "hook": "Your doubt keeps winning because your goals are promises without visible proof.",
+    "beats": [
+      "Create a small result you can point to: a completed page, a tested idea, or a solved problem.",
+      "Evidence changes the conversation from whether you can to what you will improve next."
+    ],
+    "close": "Finish one concrete artifact and save it where you can see it.",
+    "originality": {
+      "status": "owned_original",
+      "author": "Clippers Team",
+      "thirdPartyQuotes": false,
+      "thirdPartySpeeches": false,
+      "sources": []
+    },
+    "structure": {
+      "conflict": "hook",
+      "idea": "beats",
+      "action": "close"
+    }
+  },
+  "audio": {
+    "mode": "procedural_original",
+    "durationSeconds": 24,
+    "seed": 260824115,
+    "parameters": {
+      "noiseColor": "pink",
+      "amplitude": 0.08,
+      "highpassHz": 50,
+      "lowpassHz": 3800,
+      "volumeDb": -15,
+      "fadeSeconds": 1.4
+    },
+    "provenance": {
+      "status": "owned_original",
+      "generator": "ffmpeg_lavfi_anoisesrc_v1",
+      "thirdPartyAssets": false,
+      "networkUsed": false,
+      "paidCostUsd": 0
+    }
+  },
+  "style": {
+    "backgroundColor": "#172554"
+  },
+  "contentSafety": {
+    "celebrities": false,
+    "podcasts": false,
+    "clonedVoices": false,
+    "thirdPartyQuotes": false,
+    "wealthPromises": false,
+    "healthPromises": false
+  },
+  "qualityGate": {
+    "approved": true,
+    "hookFirstSecond": true,
+    "actionable": true,
+    "noQuotaFiller": true,
+    "reviewedBy": "Clippers Team",
+    "reviewedAt": "2026-08-24T12:00:00.000Z"
+  }
+}

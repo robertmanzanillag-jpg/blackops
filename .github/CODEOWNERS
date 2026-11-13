@@ -1,0 +1,6 @@
+# Release machinery: changes need the owner's review (enable "Require review from Code Owners"
+# in the branch protection of main, the single production branch). See docs/release-gate.md.
+# /.github/ covers the workflows, CODEOWNERS, dependabot.yml and the public office-config files.
+/.github/ @robertmanzanillag-jpg
+/script/release-gate/ @robertmanzanillag-jpg
+/SECURITY.md @robertmanzanillag-jpg

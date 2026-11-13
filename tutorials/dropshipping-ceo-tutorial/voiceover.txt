@@ -1,0 +1,19 @@
+Bienvenido a Dropshipping CEO.
+Este tablero sirve para investigar productos, preparar lanzamientos y proteger tu dinero antes de gastar.
+Primero mira el dashboard: meta mensual, cash cobrado, gasto, ordenes, Shopify, social y Profit Guard.
+Si Profit Guard dice que puedes gastar cero, no activamos ads todavia.
+
+Para empezar cada dia, pulsa Run CEO cycle. Eso le dice al agente que analice el negocio y decida el siguiente foco.
+Luego puedes usar Run operating day para preparar trabajo diario sin publicar ni gastar automaticamente.
+
+En Productos, corre Product Scout para buscar candidatos. Promueve solo un producto fuerte: buen margen, problema claro, shipping razonable y bajo riesgo legal.
+En Suppliers, valida AliExpress, DSers, CJ, Zendrop o Spocket. El proveedor puede hacer el delivery, pero tu tienda sigue siendo responsable del cliente.
+
+En Launch, usa Build launch pack. Eso prepara Shopify preflight, posts, campana y plan de capital. Despues usa Queue approvals para que Robert apruebe publicar, gastar, pedir sample o crear drafts.
+
+En Shopify, primero corre Preflight. Despues crea draft si las credenciales estan listas.
+En Social y Campanas, prepara posts organicos, mide views, clicks y ordenes. Los cien dolares de ads se usan solo con approval y Profit Guard.
+
+Cuando llegue una venta pagada, registra la orden en Orders. Despues, en Fulfillment, compras una unidad al proveedor, pones la direccion del cliente y agregas tracking.
+
+La rutina simple es: CEO cycle, Product Scout, validar supplier, Build launch pack, Queue approvals, publicar organico, medir data y escalar solo con ordenes reales.

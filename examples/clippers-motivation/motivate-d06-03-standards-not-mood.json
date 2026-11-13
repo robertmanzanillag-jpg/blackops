@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "shortId": "motivate-d06-03-standards-not-mood",
+  "channelId": "motivation-en",
+  "language": "en",
+  "format": "youtube_short_9x16",
+  "launchDay": 6,
+  "launchPosition": 3,
+  "topic": "standards-not-mood",
+  "script": {
+    "hook": "Your mood changes the rules so often that your work never knows what finished means.",
+    "beats": [
+      "Set a short checklist before you begin and let those standards decide when the task is complete.",
+      "Clear criteria protect quality on hard days and prevent endless polishing on good ones."
+    ],
+    "close": "Write three completion checks and use them on today's work.",
+    "originality": {
+      "status": "owned_original",
+      "author": "Clippers Team",
+      "thirdPartyQuotes": false,
+      "thirdPartySpeeches": false,
+      "sources": []
+    },
+    "structure": {
+      "conflict": "hook",
+      "idea": "beats",
+      "action": "close"
+    }
+  },
+  "audio": {
+    "mode": "procedural_original",
+    "durationSeconds": 26,
+    "seed": 260824127,
+    "parameters": {
+      "noiseColor": "pink",
+      "amplitude": 0.1,
+      "highpassHz": 75,
+      "lowpassHz": 3800,
+      "volumeDb": -15,
+      "fadeSeconds": 1.4
+    },
+    "provenance": {
+      "status": "owned_original",
+      "generator": "ffmpeg_lavfi_anoisesrc_v1",
+      "thirdPartyAssets": false,
+      "networkUsed": false,
+      "paidCostUsd": 0
+    }
+  },
+  "style": {
+    "backgroundColor": "#164E63"
+  },
+  "contentSafety": {
+    "celebrities": false,
+    "podcasts": false,
+    "clonedVoices": false,
+    "thirdPartyQuotes": false,
+    "wealthPromises": false,
+    "healthPromises": false
+  },
+  "qualityGate": {
+    "approved": true,
+    "hookFirstSecond": true,
+    "actionable": true,
+    "noQuotaFiller": true,
+    "reviewedBy": "Clippers Team",
+    "reviewedAt": "2026-08-24T12:00:00.000Z"
+  }
+}

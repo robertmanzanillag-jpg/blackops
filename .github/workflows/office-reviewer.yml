@@ -1,0 +1,80 @@
+name: Office repository reviewer
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17,47 * * * *'
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: office-repository-reviewer
+  cancel-in-progress: false
+
+jobs:
+  config:
+    # Resolves non-secret settings (repository variables win over .github/office-config.env) and
+    # reports, as true/false only, whether the reviewer's secrets exist. Off unless
+    # OFFICE_REVIEWER_AUTOMATION_ENABLED resolves to exactly 'true'.
+    if: >-
+      github.repository == 'robertmanzanillag-jpg/blackops' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    outputs:
+      env: ${{ steps.cfg.outputs.env }}
+      ready_reviewer: ${{ steps.cfg.outputs.ready_reviewer }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          sparse-checkout: .github
+          persist-credentials: false
+      - id: cfg
+        env:
+          VARS_JSON: ${{ toJSON(vars) }}
+          SECRET_OFFICE_DATABASE_URL: ${{ secrets.OFFICE_DATABASE_URL != '' }}
+          SECRET_OFFICE_OWNER_ID: ${{ secrets.OFFICE_OWNER_ID != '' }}
+          SECRET_OFFICE_OPENAI_API_KEY: ${{ secrets.OFFICE_OPENAI_API_KEY != '' }}
+          GROUP_reviewer: OFFICE_REVIEWER_AUTOMATION_ENABLED OFFICE_DATABASE_URL OFFICE_OWNER_ID OFFICE_OPENAI_API_KEY
+        run: node .github/office-config.mjs
+
+  review:
+    needs: config
+    if: >-
+      github.repository == 'robertmanzanillag-jpg/blackops' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      needs.config.outputs.ready_reviewer == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Load office configuration (variables override .github/office-config.env)
+        env:
+          OFFICE_CONFIG_ENV: ${{ needs.config.outputs.env }}
+        run: printf '%s\n' "$OFFICE_CONFIG_ENV" >> "$GITHUB_ENV"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Run one bounded repository review cycle
+        env:
+          NODE_ENV: production
+          OFFICE_WORKER_ENABLED: 'true'
+          OFFICE_WORKER_RUN_ONCE: 'true'
+          OFFICE_WORKER_REVIEW_ONLY: 'true'
+          OFFICE_KONG_AUDIT_SCHEDULE_ENABLED: 'false'
+          OFFICE_REVIEW_PROVIDER: openai
+          AGENT_COUNCIL_STORAGE: postgres
+          # OFFICE_EXPECTED_WEB_REVISION, OFFICE_OPENAI_MODEL/_MONTHLY_TOKEN_LIMIT and the academy/benchmark
+          # flags come from the "Load office configuration" step.
+          OFFICE_OPENAI_MAX_OUTPUT_TOKENS: '2048'
+          OPENAI_API_KEY: ${{ secrets.OFFICE_OPENAI_API_KEY }}
+          DATABASE_URL: ${{ secrets.OFFICE_DATABASE_URL }}
+          DEFAULT_USER_ID: ${{ secrets.OFFICE_OWNER_ID }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node --import tsx script/office-worker.ts

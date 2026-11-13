@@ -1,0 +1,41 @@
+node_modules
+dist
+.cache
+.DS_Store
+.codex-vite-*.log
+* 2.*
+.env
+.env.local
+CEO_ASSISTANT_ENV
+credentials/*
+!credentials/README.md
+secrets/*
+!secrets/README.md
+server/public
+vite.config.ts.*
+*.tar.gz
+backups/*
+.backups/*
+.app-qa-screenshots/*
+promo_video_edits/config.json
+promo_video_edits/01_originales/*
+promo_video_edits/03_listos_para_subir/*
+promo_video_edits/04_reportes/*
+radio_video_edits/01_originales/*
+radio_video_edits/03_listos_para_subir/*
+radio_video_edits/04_reportes/*
+clippers_workspace/*
+revenue_engine_data/*
+revenue_mockups/*
+dropshipping_engine_data/*
+marketing_command_center_data/*
+agent_office_data/
+
+# Personal data exports and code snapshots must never be committed (the repository is public).
+data_export*.sql
+data_export*.csv
+*.b64.txt
+replit-*.tar.gz
+
+# macOS metadata
+._*

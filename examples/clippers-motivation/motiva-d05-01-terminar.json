@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "shortId": "motiva-d05-01-terminar",
+  "channelId": "motivation-es",
+  "language": "es",
+  "format": "youtube_short_9x16",
+  "launchDay": 5,
+  "launchPosition": 1,
+  "topic": "terminar",
+  "script": {
+    "hook": "Empezar cosas nuevas te emociona, pero lo pendiente está consumiendo tu atención.",
+    "beats": [
+      "Escoge un proyecto abierto, reduce su alcance y define una línea final que puedas reconocer.",
+      "Terminar libera energía, produce evidencia y te enseña más que acumular comienzos."
+    ],
+    "close": "Cierra hoy una pieza concreta antes de abrir otra idea.",
+    "originality": {
+      "status": "owned_original",
+      "author": "Equipo Clippers",
+      "thirdPartyQuotes": false,
+      "thirdPartySpeeches": false,
+      "sources": []
+    },
+    "structure": {
+      "conflict": "hook",
+      "idea": "beats",
+      "action": "close"
+    }
+  },
+  "audio": {
+    "mode": "procedural_original",
+    "durationSeconds": 24,
+    "seed": 260824020,
+    "parameters": {
+      "noiseColor": "pink",
+      "amplitude": 0.08,
+      "highpassHz": 75,
+      "lowpassHz": 3600,
+      "volumeDb": -18,
+      "fadeSeconds": 0.8
+    },
+    "provenance": {
+      "status": "owned_original",
+      "generator": "ffmpeg_lavfi_anoisesrc_v1",
+      "thirdPartyAssets": false,
+      "networkUsed": false,
+      "paidCostUsd": 0
+    }
+  },
+  "style": {
+    "backgroundColor": "#111827"
+  },
+  "contentSafety": {
+    "celebrities": false,
+    "podcasts": false,
+    "clonedVoices": false,
+    "thirdPartyQuotes": false,
+    "wealthPromises": false,
+    "healthPromises": false
+  },
+  "qualityGate": {
+    "approved": true,
+    "hookFirstSecond": true,
+    "actionable": true,
+    "noQuotaFiller": true,
+    "reviewedBy": "Equipo Clippers",
+    "reviewedAt": "2026-08-24T12:00:00.000Z"
+  }
+}

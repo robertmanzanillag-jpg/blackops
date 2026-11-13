@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codebase Overview"
+  short_description: "Use the generated local repo map before broad code exploration."
+  default_prompt: "Use the local codebase overview before exploring this repo. Refresh the map if files changed, then answer from docs/codebase-map.md and only read targeted files."

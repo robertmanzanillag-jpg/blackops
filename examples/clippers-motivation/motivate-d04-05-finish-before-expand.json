@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "shortId": "motivate-d04-05-finish-before-expand",
+  "channelId": "motivation-en",
+  "language": "en",
+  "format": "youtube_short_9x16",
+  "launchDay": 4,
+  "launchPosition": 5,
+  "topic": "finish-before-expand",
+  "script": {
+    "hook": "Adding more features feels productive because finishing forces you to make hard choices.",
+    "beats": [
+      "Return to the smallest useful promise and remove anything that does not help deliver it.",
+      "Completion creates a real starting point for expansion; endless scope creates only delay."
+    ],
+    "close": "Cut one extra requirement and finish the core version today.",
+    "originality": {
+      "status": "owned_original",
+      "author": "Clippers Team",
+      "thirdPartyQuotes": false,
+      "thirdPartySpeeches": false,
+      "sources": []
+    },
+    "structure": {
+      "conflict": "hook",
+      "idea": "beats",
+      "action": "close"
+    }
+  },
+  "audio": {
+    "mode": "procedural_original",
+    "durationSeconds": 28,
+    "seed": 260824119,
+    "parameters": {
+      "noiseColor": "pink",
+      "amplitude": 0.12,
+      "highpassHz": 70,
+      "lowpassHz": 3400,
+      "volumeDb": -15,
+      "fadeSeconds": 1.4
+    },
+    "provenance": {
+      "status": "owned_original",
+      "generator": "ffmpeg_lavfi_anoisesrc_v1",
+      "thirdPartyAssets": false,
+      "networkUsed": false,
+      "paidCostUsd": 0
+    }
+  },
+  "style": {
+    "backgroundColor": "#450A0A"
+  },
+  "contentSafety": {
+    "celebrities": false,
+    "podcasts": false,
+    "clonedVoices": false,
+    "thirdPartyQuotes": false,
+    "wealthPromises": false,
+    "healthPromises": false
+  },
+  "qualityGate": {
+    "approved": true,
+    "hookFirstSecond": true,
+    "actionable": true,
+    "noQuotaFiller": true,
+    "reviewedBy": "Clippers Team",
+    "reviewedAt": "2026-08-24T12:00:00.000Z"
+  }
+}

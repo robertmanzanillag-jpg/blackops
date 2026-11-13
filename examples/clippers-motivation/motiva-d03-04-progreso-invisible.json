@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "shortId": "motiva-d03-04-progreso-invisible",
+  "channelId": "motivation-es",
+  "language": "es",
+  "format": "youtube_short_9x16",
+  "launchDay": 3,
+  "launchPosition": 4,
+  "topic": "progreso-invisible",
+  "script": {
+    "hook": "Tu avance parece invisible porque estás mirando resultados que tardan en acumularse.",
+    "beats": [
+      "Cuenta también las repeticiones, las decisiones mejores y los problemas que ahora resuelves con menos esfuerzo.",
+      "Esas señales no son el destino, pero demuestran que el proceso está cambiando."
+    ],
+    "close": "Registra tres evidencias pequeñas de progreso antes de planear mañana.",
+    "originality": {
+      "status": "owned_original",
+      "author": "Equipo Clippers",
+      "thirdPartyQuotes": false,
+      "thirdPartySpeeches": false,
+      "sources": []
+    },
+    "structure": {
+      "conflict": "hook",
+      "idea": "beats",
+      "action": "close"
+    }
+  },
+  "audio": {
+    "mode": "procedural_original",
+    "durationSeconds": 27,
+    "seed": 260824013,
+    "parameters": {
+      "noiseColor": "pink",
+      "amplitude": 0.11,
+      "highpassHz": 75,
+      "lowpassHz": 3400,
+      "volumeDb": -17,
+      "fadeSeconds": 1
+    },
+    "provenance": {
+      "status": "owned_original",
+      "generator": "ffmpeg_lavfi_anoisesrc_v1",
+      "thirdPartyAssets": false,
+      "networkUsed": false,
+      "paidCostUsd": 0
+    }
+  },
+  "style": {
+    "backgroundColor": "#134E4A"
+  },
+  "contentSafety": {
+    "celebrities": false,
+    "podcasts": false,
+    "clonedVoices": false,
+    "thirdPartyQuotes": false,
+    "wealthPromises": false,
+    "healthPromises": false
+  },
+  "qualityGate": {
+    "approved": true,
+    "hookFirstSecond": true,
+    "actionable": true,
+    "noQuotaFiller": true,
+    "reviewedBy": "Equipo Clippers",
+    "reviewedAt": "2026-08-24T12:00:00.000Z"
+  }
+}

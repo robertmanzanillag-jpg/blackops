@@ -1,0 +1,265 @@
+{
+  "_comment": "Tracked allowlist for the release gate (docs/release-gate.md). knownFailures: pre-existing failing test files, each with the reason and the exact names of the tests expected to fail ('failing'); any OTHER failing test fails the gate, and a listed test that starts passing must be removed. sandboxIntegrationRoutes: exact route + status the sandbox tolerates because it deliberately has no Replit connectors or KONG access. Adding or changing entries requires the PR label gate-justified.",
+  "knownFailures": {
+    "tests/agents-office-local-qa.test.mjs": {
+      "reason": "Browser office QA fixture times out in headless CI (TimeoutError after ~40 s); pre-existing, also fails locally; it sometimes hangs instead (seen up to 7 min), so <timeout> is listed and the limit is 3 min.",
+      "failing": [
+        "<timeout>",
+        "office local QA: actual sessions, owner isolation and native scouts with fixture storage"
+      ],
+      "flaky": true,
+      "timeoutMs": 180000
+    },
+    "tests/app-qa-agent.test.ts": {
+      "reason": "'mission inventory covers every explicit client route exactly once': the App QA route inventory no longer matches client/src/App.tsx routes (pre-existing).",
+      "failing": [
+        "mission inventory covers every explicit client route exactly once"
+      ]
+    },
+    "tests/clippers-agent.test.ts": {
+      "reason": "Several cases need DEFAULT_USER_ID in the environment ('DEFAULT_USER_ID is required for system jobs'); the test does not set it (pre-existing).",
+      "failing": [
+        "100 clips sprint keeps Metricool in approval required mode",
+        "TikTok OAuth state and vault records stay scoped per account",
+        "bootstrapClipperAccounts prepares platform accounts and permission queue",
+        "bootstrapClipperWorkspace prepares source folders and credential checks",
+        "cached Source Scout intake status downgrades when source file disappears",
+        "cached publisher execution queue is normalized back to approval required",
+        "getClipperStatus blocks fake source-drop proof files",
+        "getClipperStatus blocks fake values in operational launch evidence",
+        "getClipperStatus exposes guarded growth goals",
+        "getClipperStatus normalizes stale Metricool cache to approval-only",
+        "getClipperStatus rewrites Metricool publishMode-only stale artifacts",
+        "go-live completion audit blocks Metricool MVP when source lanes are not ready",
+        "go-live completion audit receives normalized Metricool approval-only queue",
+        "importClipperCredentialDropFiles accepts Drive-style credential JSON files",
+        "importClipperCredentialDropFiles accepts KEY=value credential text files",
+        "importClipperCredentialDropFiles imports credential and secret drop files safely",
+        "importClipperCredentialDropFiles reports Google service account JSON as wrong credential type",
+        "importClipperLaunchEvidenceDropFiles blocks dirty evidence-drop without writing partial evidence",
+        "importClipperLaunchEvidenceDropFiles ignores Metricool approval evidence template",
+        "importClipperLaunchEvidenceDropFiles imports CSV evidence files from evidence-drop",
+        "importClipperMetricoolApprovalEvidence converts published evidence into analytics metrics safely",
+        "importClipperSourceDropFiles copies dropped videos into source folders",
+        "importClipperSourceDropFiles creates allowlist evidence from source-drop manifest",
+        "ingestClipperMetrics imports CSV exports and updates optimizer summary",
+        "ingestClipperTrends ranks recent opportunities and gates rights",
+        "prepareClipper100ClipsExecutionSprint writes coordination artifacts without duplicating source scout",
+        "prepareClipperAccountCreationPack writes executable account creation CSV and runbook",
+        "prepareClipperAccountEvidenceVault writes templates and evidence unlocks launch tasks",
+        "prepareClipperAccountIdentityKit writes profiles, prompts and first post ideas",
+        "prepareClipperAccountLaunchKit writes account creation manifest",
+        "prepareClipperAccountSetupSession writes executable external account setup session",
+        "prepareClipperAnalyticsReportingPack writes analytics export runbook without secrets",
+        "prepareClipperAppReviewDemoPack writes public demo and screencast script without secrets",
+        "prepareClipperAppReviewSubmissionPack writes copy-ready review answers without secrets",
+        "prepareClipperAutomationSchedule writes daily runbook manifest",
+        "prepareClipperBlockerResolutionPack writes prioritized unblock actions",
+        "prepareClipperCredentialDoctor rejects placeholder runtime credentials",
+        "prepareClipperCredentialDoctor reports platform aliases without secret values",
+        "prepareClipperCredentialDropStarter writes editable pending env files without overwriting",
+        "prepareClipperCredentialSetupCenter accepts extended Google OAuth aliases",
+        "prepareClipperCredentialSetupCenter lists credential file candidates without reading secrets",
+        "prepareClipperCredentialSetupCenter writes safe setup docs and accepts Google Drive aliases",
+        "prepareClipperDeveloperAppEvidenceVault writes templates and reads approved app evidence",
+        "prepareClipperDeveloperApplicationDrafts writes copy-ready developer app submissions",
+        "prepareClipperDraftSpecs writes editable draft specs for rights-cleared queue items",
+        "prepareClipperDriveWorkspace ignores placeholder public redirect URLs",
+        "prepareClipperDriveWorkspace tells user to reload when Google keys are only in env files",
+        "prepareClipperDriveWorkspace writes safe Google Drive env template when keys are missing",
+        "prepareClipperDropzoneReadyPack writes safe intake board for missing go-live inputs",
+        "prepareClipperExternalAccountPermissionSprint aliases the 100 clips sprint and sanitizes evidence rows",
+        "prepareClipperExternalExecutionHandoff writes batch-ready external handoff",
+        "prepareClipperExternalExecutionSession writes lane-based execution pack",
+        "prepareClipperExternalLaunchDossier groups external launch actions by platform",
+        "prepareClipperExternalSetupQueue writes prioritized external setup tasks",
+        "prepareClipperGoLiveAutopilotBrief writes unified next-action queue",
+        "prepareClipperGoLiveCompletionAudit verifies full go-live requirements conservatively",
+        "prepareClipperGoLiveEvidenceBundle writes one import bundle for external launch evidence",
+        "prepareClipperGoLiveExecutionPack surfaces Metricool MVP without marking direct autopublish ready",
+        "prepareClipperGoLiveExecutionPack writes executable platform phases",
+        "prepareClipperGoLiveOperatorBrief writes focused operator lanes",
+        "prepareClipperHttpsTunnelPlan writes public URL options and command center step",
+        "prepareClipperIntakeKit writes safe templates for trends metrics allowlist and sources",
+        "prepareClipperLaunchCommandCenter prepares all local launch artifacts and blocker map",
+        "prepareClipperLaunchEvidenceFixPack writes correction queue for rejected evidence rows",
+        "prepareClipperLegalPolicyPack writes public privacy and terms artifacts",
+        "prepareClipperManualPostingPack writes CSV and command center step",
+        "prepareClipperMetricoolApprovalReport audits queue evidence without counting queued as published",
+        "prepareClipperMetricoolApprovalSession prepares operator evidence for queued Metricool approvals",
+        "prepareClipperMetricoolExecutionQueue maps automation posts to connected Metricool TikTok brands",
+        "prepareClipperMetricoolMvpLaunchPack separates approval queue MVP from full autopublish blockers",
+        "prepareClipperMetricoolPublishingPlan writes Sports and Memes Metricool launch channels",
+        "prepareClipperOAuthConnectionPack writes per-account OAuth runbook without secrets",
+        "prepareClipperOAuthGoLivePreflight writes OAuth go-live gate without secrets",
+        "prepareClipperOfficialPermissionMatrix writes official scope references",
+        "prepareClipperOwnerConnectPack writes one operator queue for external account connection",
+        "prepareClipperPermissionPack derives local redirect URIs from PORT when public base URL is absent",
+        "prepareClipperPermissionPack writes app review and OAuth setup files",
+        "prepareClipperPermissionRequestPack writes copy-ready scope requests",
+        "prepareClipperPermissionSubmissionDossier writes unified platform submission dossier",
+        "prepareClipperPermissionTracker writes reviewed permission manifest",
+        "prepareClipperPlatformPortalChecklist writes consolidated portal actions",
+        "prepareClipperPlatformReadinessMatrix writes per-platform blocker matrix",
+        "prepareClipperProductionQueue scans assets and respects allowlist evidence",
+        "prepareClipperProductionUrlSetup blocks stale production URL verification",
+        "prepareClipperProductionUrlSetup treats quick tunnels as temporary",
+        "prepareClipperProductionUrlSetup writes redirect URI setup and blocks localhost go-live",
+        "prepareClipperPublisherConnectors writes platform publish preflight contracts",
+        "prepareClipperPublisherExecutionQueue writes guarded publish ledger without secrets",
+        "prepareClipperRightsEvidenceLedger audits proof and source-file blockers without fake readiness",
+        "prepareClipperRightsOutreachPack writes creator permission outreach templates",
+        "prepareClipperRobertNextActions writes dynamic current-state action pack",
+        "prepareClipperSourceAcquisitionPlan writes daily source gaps by category",
+        "prepareClipperSourceDiscoveryHandoff joins viral searches to missing source assets",
+        "prepareClipperSourceHuntSheet writes 30-slot daily hunt CSV and markdown",
+        "prepareClipperSourceIngestionSprint is visible from cached status",
+        "prepareClipperSourceScout writes rights-gated candidates and refreshes Metricool queue",
+        "prepareClipperSourceScoutDailySprint writes daily lead and exact URL gaps without fake readiness",
+        "prepareClipperSourceScoutExactUrlKit writes search links for discovery leads without claiming exact URLs",
+        "prepareClipperSourceScoutPermissionPack writes outreach and intake rows without publishing",
+        "prepareClipperSourceScoutSourceFileKit does not count fake local media as existing",
+        "prepareClipperSourceScoutSourceFileKit writes source-drop checklist without fake media",
+        "prepareClipperSourceScoutWorkQueue writes prioritized blocker queue without publishing",
+        "prepareClipperSourceSupplyDropKit writes intake-ready source rows",
+        "prepareClipperTrendRightsOutreachPack writes outreach for review-required trends",
+        "prepareClipperViralDiscoveryPack writes daily viral search queue",
+        "prepareClipperWeeklyProductionFunnel writes guarded 100 clips funnel",
+        "previewClipperCredentialSecretsBatch accepts Google OAuth client JSON without writing secrets",
+        "previewClipperCredentialSecretsBatch accepts nested Google OAuth exports without writing secrets",
+        "previewClipperCredentialSecretsBatch validates .env text without writing secrets",
+        "previewClipperLaunchEvidenceBatch validates rows without writing evidence",
+        "recordClipperAccountEvidence writes JSON evidence and unlocks launch task",
+        "recordClipperCredentialSecret upserts allowed keys without returning secret values",
+        "recordClipperCredentialSecretsBatch imports .env text without returning secret values",
+        "recordClipperCredentialSecretsBatch imports Google OAuth client JSON safely",
+        "recordClipperDeveloperAppEvidence writes app evidence without secrets",
+        "recordClipperLaunchEvidenceBatch imports account app and permission evidence",
+        "recordClipperLaunchEvidenceBatch strict mode blocks partial writes",
+        "recordClipperMetricoolAccountEvidence records Metricool bridge evidence without verifying accounts",
+        "recordClipperOAuthCallback stores hashed OAuth metadata and updates account state",
+        "recordClipperPermissionStatus persists permission review status without secrets",
+        "recordClipperProductionPublicUrl requires public HTTPS and refreshes go-live artifacts",
+        "recordClipperSourceIntakeBatch writes source tasks and rights batch rows",
+        "recordClipperSourceRights writes allowlist evidence and unlocks source asset",
+        "recordClipperSourceScoutIntake enforces gates before Metricool approval",
+        "recordClipperSourceScoutIntake upserts without dropping existing intake items",
+        "recordClipperTrendCandidatesBatch imports candidates and refreshes radar",
+        "reloadClipperCredentials loads CEO_ASSISTANT_ENV without exposing secret values",
+        "reloadClipperCredentials loads extended local env files and reports aliases without values",
+        "renderClipperDraftVideos renders mp4 clips from rights-cleared draft specs",
+        "runClipperAutomationCycle writes schedule and reports blockers",
+        "runClipperDailyPlan creates drafts for each configured account",
+        "runClipperExternalConnectAutopilot is visible from cached status",
+        "runClipperGoLiveAutopilot advances past recently completed actions",
+        "runClipperGoLiveAutopilot can refresh the operator brief action",
+        "runClipperGoLiveAutopilot executes allowlisted in-app actions and writes run summary",
+        "runClipperGoLivePrepSweep refreshes all local go-live packs conservatively",
+        "runClipperIntakeRefreshSweep writes operator intake refresh report safely",
+        "runClipperLocalDropSync imports launch evidence drop without failing",
+        "runClipperLocalDropSync safely skips empty drops and refreshes go-live state",
+        "runClipperPostConnectActivationSweep refreshes post-connect readiness safely",
+        "saveClipperTokenPayload encrypts token payloads before writing the vault",
+        "verifyClipperProductionLocalPreflight checks local app routes before tunneling",
+        "verifyClipperProductionUrl times out stuck DNS lookups",
+        "verifyClipperProductionUrl writes endpoint evidence without secrets"
+      ]
+    },
+    "tests/clippers-launch-agent-installer.test.mjs": {
+      "reason": "macOS LaunchAgent installer: requires the macOS system time zone America/New_York and a clean runtime checkout; cannot pass on a Linux runner.",
+      "failing": [
+        "LaunchAgent does not install or start by default",
+        "LaunchAgent fails closed when the content worker config is not owner-only",
+        "LaunchAgent refuses a dirty development runtime unless the test-only override is explicit",
+        "LaunchAgent refuses an invalid project root without replacing the existing plist",
+        "LaunchAgents bind configurable runtime/config roots and persist only explicit non-secret controls",
+        "installation verifies all launchd jobs without kickstarting them"
+      ]
+    },
+    "tests/clippers-motivation-shorts.test.mjs": {
+      "reason": "Local render pipeline returns render_failed on the Linux runner (expects the operator Mac toolchain); pre-existing.",
+      "failing": [
+        "cleans its partial SRT after a transient render failure so a retry can succeed",
+        "renders an authorized local voice to a deduplicated 9:16 Short with QA evidence",
+        "renders procedural-original audio without voice files or voice-rights evidence"
+      ]
+    },
+    "tests/clippers-owned-source-scripts.test.ts": {
+      "reason": "Evidence importer cases assume macOS paths (/private/tmp) and the operator toolchain; pre-existing.",
+      "failing": [
+        "external closeout evidence importer can apply accepted rows while leaving rejected rows blocked",
+        "external closeout evidence importer validates local proof files without symlink escape"
+      ]
+    },
+    "tests/clippers-render-campaign-drafts.test.mjs": {
+      "reason": "Draft renderer needs ImageMagick 7 'magick' (spawn magick ENOENT on the runner); operator Mac toolchain only.",
+      "failing": [
+        "renders a deterministic local 9:16 draft with audio, subtitles, hashes, and three evidence frames"
+      ]
+    },
+    "tests/clippers-youtube-delivery-worker.test.mjs": {
+      "reason": "zsh wrapper allowlist case exits 1 on the Linux runner (macOS operator wrapper); pre-existing.",
+      "failing": [
+        "shell wrapper exports only the exact YouTube allowlist and never logs values"
+      ]
+    },
+    "tests/kong-company-routes.test.ts": {
+      "reason": "'real council routes isolate KONG owner writes': member write answers 500 instead of 403 (pre-existing; candidate bug to fix).",
+      "failing": [
+        "real council routes isolate KONG owner writes and strip KONG state for members"
+      ]
+    },
+    "tests/kong-office-browser-qa.test.mjs": {
+      "reason": "KONG unified office browser scouts time out in headless CI (~20 s); pre-existing, also fails locally; it sometimes hangs instead (seen up to 7 min), so <timeout> is listed and the limit is 3 min.",
+      "failing": [
+        "<timeout>",
+        "KONG unified office: browser route, click, API, error and improvement scouts"
+      ],
+      "flaky": true,
+      "timeoutMs": 180000
+    },
+    "tests/legacy-publication-containment.test.ts": {
+      "reason": "Imports the bare package 'containment-handlers' that does not exist (ERR_MODULE_NOT_FOUND); the test cannot load (pre-existing).",
+      "failing": [
+        "tests/legacy-publication-containment.test.ts"
+      ]
+    },
+    "tests/metricool-analytics-sync.test.ts": {
+      "reason": "Scheduler cases reach the real storage layer without a database ('Failed query: select ... automations'); pre-existing.",
+      "failing": [
+        "daily scheduler catches up after a Replit restart misses the exact configured minute",
+        "daily scheduler runs at the configured New York time and records a single run per date",
+        "scheduler contains manual-rejection failure without terminating HTTP service",
+        "scheduler contains manual-timeout failure without terminating HTTP service",
+        "scheduler contains scheduled-timeout failure without terminating HTTP service"
+      ]
+    },
+    "tests/office-internal-work.test.ts": {
+      "reason": "'internal artifact route refuses other users before loading private state' returns undefined instead of []; pre-existing.",
+      "failing": [
+        "internal artifact route refuses other users before loading private state"
+      ]
+    },
+    "tests/revenue-engine.test.ts": {
+      "reason": "Hangs after a route answers 'Authentication required' and never completes (> 7 min in CI, > 4 min locally); killed at its timeout.",
+      "failing": [
+        "<timeout>"
+      ],
+      "timeoutMs": 120000
+    }
+  },
+  "sandboxIntegrationRoutes": {
+    "/api/calendar/sync": {
+      "status": [
+        500
+      ],
+      "reason": "Google Calendar goes through the Replit connector (X_REPLIT_TOKEN), which only exists on Replit; the handler answers 500 instead of a clear 503 when the connector is absent (pre-existing)."
+    },
+    "/api/agents-office/cities": {
+      "status": [
+        503
+      ],
+      "reason": "The KONG city directory needs KONG read access, deliberately absent in the sandbox; the route answers an explicit 503."
+    }
+  }
+}

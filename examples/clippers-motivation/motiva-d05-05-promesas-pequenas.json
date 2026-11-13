@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "shortId": "motiva-d05-05-promesas-pequenas",
+  "channelId": "motivation-es",
+  "language": "es",
+  "format": "youtube_short_9x16",
+  "launchDay": 5,
+  "launchPosition": 5,
+  "topic": "promesas-pequenas",
+  "script": {
+    "hook": "Tu meta parece pesada porque intentas cargarla completa cada mañana.",
+    "beats": [
+      "Convierte la ambición en una promesa diaria que puedas medir y repetir.",
+      "La suma de acciones pequeñas crea una trayectoria; las intenciones enormes sin calendario solo crean presión."
+    ],
+    "close": "Define una acción de menos de veinte minutos y complétala hoy.",
+    "originality": {
+      "status": "owned_original",
+      "author": "Equipo Clippers",
+      "thirdPartyQuotes": false,
+      "thirdPartySpeeches": false,
+      "sources": []
+    },
+    "structure": {
+      "conflict": "hook",
+      "idea": "beats",
+      "action": "close"
+    }
+  },
+  "audio": {
+    "mode": "procedural_original",
+    "durationSeconds": 28,
+    "seed": 260824024,
+    "parameters": {
+      "noiseColor": "pink",
+      "amplitude": 0.12,
+      "highpassHz": 60,
+      "lowpassHz": 3200,
+      "volumeDb": -18,
+      "fadeSeconds": 0.8
+    },
+    "provenance": {
+      "status": "owned_original",
+      "generator": "ffmpeg_lavfi_anoisesrc_v1",
+      "thirdPartyAssets": false,
+      "networkUsed": false,
+      "paidCostUsd": 0
+    }
+  },
+  "style": {
+    "backgroundColor": "#422006"
+  },
+  "contentSafety": {
+    "celebrities": false,
+    "podcasts": false,
+    "clonedVoices": false,
+    "thirdPartyQuotes": false,
+    "wealthPromises": false,
+    "healthPromises": false
+  },
+  "qualityGate": {
+    "approved": true,
+    "hookFirstSecond": true,
+    "actionable": true,
+    "noQuotaFiller": true,
+    "reviewedBy": "Equipo Clippers",
+    "reviewedAt": "2026-08-24T12:00:00.000Z"
+  }
+}

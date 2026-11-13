@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "shortId": "motivate-d02-02-first-draft",
+  "channelId": "motivation-en",
+  "language": "en",
+  "format": "youtube_short_9x16",
+  "launchDay": 2,
+  "launchPosition": 2,
+  "topic": "first-draft",
+  "script": {
+    "hook": "Your first draft is not supposed to prove your talent; it is supposed to exist.",
+    "beats": [
+      "Put the raw idea where you can see it, then improve one weak section at a time.",
+      "Judging an empty page creates fear, while editing real material creates choices."
+    ],
+    "close": "Write the rough version for fifteen minutes without deleting a sentence.",
+    "originality": {
+      "status": "owned_original",
+      "author": "Clippers Team",
+      "thirdPartyQuotes": false,
+      "thirdPartySpeeches": false,
+      "sources": []
+    },
+    "structure": {
+      "conflict": "hook",
+      "idea": "beats",
+      "action": "close"
+    }
+  },
+  "audio": {
+    "mode": "procedural_original",
+    "durationSeconds": 25,
+    "seed": 260824106,
+    "parameters": {
+      "noiseColor": "pink",
+      "amplitude": 0.09,
+      "highpassHz": 75,
+      "lowpassHz": 3200,
+      "volumeDb": -16,
+      "fadeSeconds": 1.2
+    },
+    "provenance": {
+      "status": "owned_original",
+      "generator": "ffmpeg_lavfi_anoisesrc_v1",
+      "thirdPartyAssets": false,
+      "networkUsed": false,
+      "paidCostUsd": 0
+    }
+  },
+  "style": {
+    "backgroundColor": "#365314"
+  },
+  "contentSafety": {
+    "celebrities": false,
+    "podcasts": false,
+    "clonedVoices": false,
+    "thirdPartyQuotes": false,
+    "wealthPromises": false,
+    "healthPromises": false
+  },
+  "qualityGate": {
+    "approved": true,
+    "hookFirstSecond": true,
+    "actionable": true,
+    "noQuotaFiller": true,
+    "reviewedBy": "Clippers Team",
+    "reviewedAt": "2026-08-24T12:00:00.000Z"
+  }
+}

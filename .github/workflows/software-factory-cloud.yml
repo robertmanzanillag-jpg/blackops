@@ -1,0 +1,131 @@
+name: Software factory (cloud, manual fallback)
+
+# MANUAL-ONLY FALLBACK. The unified workflow `office-worker-cloud.yml` (job `factory-once`) is now the
+# scheduled path for the Software Factory; this file has no schedule so there are never two
+# schedulers. Both share the `software-factory-cloud` concurrency group, so a manual run here and a
+# scheduled run there never overlap.
+#
+# Runs the reviewed Asistente factory in the cloud: no PC required. When dispatched, GitHub starts a
+# clean, isolated machine; `software-factory-once` claims at most four stages from the PostgreSQL
+# queue, exits as soon as the queue is idle, and never replays uncertain work. It stays review-only
+# and company-orders-only: no publication, deployment, credentials or KONG changes.
+#
+# Scheduled workflows only run from the default branch, so this file lives on `main` and executes
+# the factory source named by FACTORY_SOURCE_REF, else OFFICE_SOURCE_REF (variables, else .github/office-config.env).
+
+on:
+  # Manual only: the scheduled path is the `factory-once` job in office-worker-cloud.yml.
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: software-factory-cloud
+  cancel-in-progress: false
+
+jobs:
+  config:
+    # Resolves non-secret settings (repository variables win over .github/office-config.env) and
+    # reports, as true/false only, whether the factory secrets exist (skipped with a notice if not).
+    if: github.repository == 'robertmanzanillag-jpg/blackops'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    outputs:
+      env: ${{ steps.cfg.outputs.env }}
+      OFFICE_SOURCE_REF: ${{ steps.cfg.outputs.OFFICE_SOURCE_REF }}
+      FACTORY_SOURCE_REF: ${{ steps.cfg.outputs.FACTORY_SOURCE_REF }}
+      ready_factory: ${{ steps.cfg.outputs.ready_factory }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          sparse-checkout: .github
+          persist-credentials: false
+      - id: cfg
+        env:
+          VARS_JSON: ${{ toJSON(vars) }}
+          SECRET_FACTORY_DATABASE_URL: ${{ (secrets.FACTORY_DATABASE_URL || secrets.OFFICE_DATABASE_URL) != '' }}
+          SECRET_FACTORY_OWNER_ID: ${{ (secrets.FACTORY_OWNER_ID || secrets.OFFICE_OWNER_ID) != '' }}
+          SECRET_FACTORY_OPENAI_API_KEY: ${{ (secrets.FACTORY_OPENAI_API_KEY || secrets.OFFICE_OPENAI_API_KEY) != '' }}
+          SECRET_SOFTWARE_FACTORY_GITHUB_TOKEN: ${{ secrets.SOFTWARE_FACTORY_GITHUB_TOKEN != '' }}
+          SECRET_OPENAI_SHARED_CREDIT_CONFIG_JSON: ${{ secrets.OPENAI_SHARED_CREDIT_CONFIG_JSON != '' }}
+          SECRET_SOFTWARE_FACTORY_OPERATOR_CONFIG_JSON: ${{ secrets.SOFTWARE_FACTORY_OPERATOR_CONFIG_JSON != '' }}
+          GROUP_factory: SOFTWARE_FACTORY_CLOUD_ENABLED FACTORY_DATABASE_URL FACTORY_OWNER_ID FACTORY_OPENAI_API_KEY SOFTWARE_FACTORY_GITHUB_TOKEN OPENAI_SHARED_CREDIT_CONFIG_JSON SOFTWARE_FACTORY_OPERATOR_CONFIG_JSON
+        run: node .github/office-config.mjs
+
+  factory-once:
+    # Never on forks; only scheduled or manual runs of this repository can see the factory secrets.
+    needs: config
+    if: github.repository == 'robertmanzanillag-jpg/blackops' && needs.config.outputs.ready_factory == 'true'
+    runs-on: ubuntu-24.04
+    # 30-minute run budget plus startup and bounded settlement/cleanup.
+    timeout-minutes: 45
+    steps:
+      - name: Load office configuration (variables override .github/office-config.env)
+        env:
+          OFFICE_CONFIG_ENV: ${{ needs.config.outputs.env }}
+        run: printf '%s\n' "$OFFICE_CONFIG_ENV" >> "$GITHUB_ENV"
+
+      - name: Refuse to run without a reviewed production source
+        env:
+          SOURCE_REF: ${{ needs.config.outputs.FACTORY_SOURCE_REF || needs.config.outputs.OFFICE_SOURCE_REF }}
+        run: |
+          if [ -z "$SOURCE_REF" ]; then echo "::error::FACTORY_SOURCE_REF and OFFICE_SOURCE_REF are empty"; exit 1; fi
+
+      - name: Check out the factory source in production
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.config.outputs.FACTORY_SOURCE_REF || needs.config.outputs.OFFICE_SOURCE_REF }}
+          persist-credentials: false
+
+      - name: Verify the reviewed entrypoint exists
+        run: test -f script/software-factory-once.ts
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies (no lifecycle scripts; esbuild rebuilt explicitly for tsx)
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm rebuild esbuild
+
+      - name: Install private configuration outside the checkout
+        env:
+          OPENAI_SHARED_CREDIT_CONFIG_JSON: ${{ secrets.OPENAI_SHARED_CREDIT_CONFIG_JSON }}
+          SOFTWARE_FACTORY_OPERATOR_CONFIG_JSON: ${{ secrets.SOFTWARE_FACTORY_OPERATOR_CONFIG_JSON }}
+        run: |
+          set -euo pipefail
+          umask 077
+          dir="$RUNNER_TEMP/factory-config"
+          mkdir -p "$dir"
+          test -n "$OPENAI_SHARED_CREDIT_CONFIG_JSON" && test -n "$SOFTWARE_FACTORY_OPERATOR_CONFIG_JSON"
+          printf '%s' "$OPENAI_SHARED_CREDIT_CONFIG_JSON" > "$dir/shared-credit.json"
+          printf '%s' "$SOFTWARE_FACTORY_OPERATOR_CONFIG_JSON" > "$dir/operator.json"
+          node -e 'for (const f of process.argv.slice(1)) JSON.parse(require("fs").readFileSync(f, "utf8"))' "$dir/shared-credit.json" "$dir/operator.json"
+          echo "FACTORY_CONFIG_DIR=$dir" >> "$GITHUB_ENV"
+
+      - name: Run the factory once (exits when idle)
+        env:
+          NODE_ENV: production
+          SOFTWARE_FACTORY_ENABLED: "true"
+          SOFTWARE_FACTORY_STORAGE_BACKEND: postgres
+          AGENT_COUNCIL_STORAGE: postgres
+          OPENAI_SHARED_CREDITS_REQUIRED: "true"
+          # Factory-specific secrets win; otherwise reuse the office ones (same as office-worker-cloud.yml).
+          DATABASE_URL: ${{ secrets.FACTORY_DATABASE_URL || secrets.OFFICE_DATABASE_URL }}
+          DEFAULT_USER_ID: ${{ secrets.FACTORY_OWNER_ID || secrets.OFFICE_OWNER_ID }}
+          SOFTWARE_FACTORY_OWNER_ID: ${{ secrets.FACTORY_OWNER_ID || secrets.OFFICE_OWNER_ID }}
+          OPENAI_API_KEY: ${{ secrets.FACTORY_OPENAI_API_KEY || secrets.OFFICE_OPENAI_API_KEY }}
+          SOFTWARE_FACTORY_GITHUB_TOKEN: ${{ secrets.SOFTWARE_FACTORY_GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          export OPENAI_SHARED_CREDIT_CONFIG="$FACTORY_CONFIG_DIR/shared-credit.json"
+          export SOFTWARE_FACTORY_OPERATOR_CONFIG="$FACTORY_CONFIG_DIR/operator.json"
+          # 32 minutes: the worker's own 30-minute budget, then SIGTERM for bounded settlement.
+          timeout --signal=TERM --kill-after=5m 32m node --import tsx script/software-factory-once.ts
+
+      - name: Remove private configuration
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/factory-config"

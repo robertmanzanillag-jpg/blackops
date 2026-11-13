@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "shortId": "motivate-d04-03-next-constraint",
+  "channelId": "motivation-en",
+  "language": "en",
+  "format": "youtube_short_9x16",
+  "launchDay": 4,
+  "launchPosition": 3,
+  "topic": "next-constraint",
+  "script": {
+    "hook": "The whole goal feels impossible because you are trying to solve every obstacle at once.",
+    "beats": [
+      "Find the single constraint that prevents movement right now and ignore the problems that only appear later.",
+      "Removing one real bottleneck creates options that planning around ten imaginary ones cannot."
+    ],
+    "close": "Name today's constraint and spend twenty minutes reducing it.",
+    "originality": {
+      "status": "owned_original",
+      "author": "Clippers Team",
+      "thirdPartyQuotes": false,
+      "thirdPartySpeeches": false,
+      "sources": []
+    },
+    "structure": {
+      "conflict": "hook",
+      "idea": "beats",
+      "action": "close"
+    }
+  },
+  "audio": {
+    "mode": "procedural_original",
+    "durationSeconds": 26,
+    "seed": 260824117,
+    "parameters": {
+      "noiseColor": "pink",
+      "amplitude": 0.1,
+      "highpassHz": 60,
+      "lowpassHz": 4200,
+      "volumeDb": -17,
+      "fadeSeconds": 1
+    },
+    "provenance": {
+      "status": "owned_original",
+      "generator": "ffmpeg_lavfi_anoisesrc_v1",
+      "thirdPartyAssets": false,
+      "networkUsed": false,
+      "paidCostUsd": 0
+    }
+  },
+  "style": {
+    "backgroundColor": "#164E63"
+  },
+  "contentSafety": {
+    "celebrities": false,
+    "podcasts": false,
+    "clonedVoices": false,
+    "thirdPartyQuotes": false,
+    "wealthPromises": false,
+    "healthPromises": false
+  },
+  "qualityGate": {
+    "approved": true,
+    "hookFirstSecond": true,
+    "actionable": true,
+    "noQuotaFiller": true,
+    "reviewedBy": "Clippers Team",
+    "reviewedAt": "2026-08-24T12:00:00.000Z"
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "shortId": "motivate-d04-04-feedback-identity",
+  "channelId": "motivation-en",
+  "language": "en",
+  "format": "youtube_short_9x16",
+  "launchDay": 4,
+  "launchPosition": 4,
+  "topic": "feedback-identity",
+  "script": {
+    "hook": "A weak result says something about the attempt, not everything about you.",
+    "beats": [
+      "Describe what happened in measurable terms and keep your identity out of the diagnosis.",
+      "When feedback belongs to the work, you can change the work without attacking yourself."
+    ],
+    "close": "Rewrite one harsh judgment as a specific adjustment you can test.",
+    "originality": {
+      "status": "owned_original",
+      "author": "Clippers Team",
+      "thirdPartyQuotes": false,
+      "thirdPartySpeeches": false,
+      "sources": []
+    },
+    "structure": {
+      "conflict": "hook",
+      "idea": "beats",
+      "action": "close"
+    }
+  },
+  "audio": {
+    "mode": "procedural_original",
+    "durationSeconds": 27,
+    "seed": 260824118,
+    "parameters": {
+      "noiseColor": "pink",
+      "amplitude": 0.11,
+      "highpassHz": 65,
+      "lowpassHz": 3200,
+      "volumeDb": -16,
+      "fadeSeconds": 1.2
+    },
+    "provenance": {
+      "status": "owned_original",
+      "generator": "ffmpeg_lavfi_anoisesrc_v1",
+      "thirdPartyAssets": false,
+      "networkUsed": false,
+      "paidCostUsd": 0
+    }
+  },
+  "style": {
+    "backgroundColor": "#3B0764"
+  },
+  "contentSafety": {
+    "celebrities": false,
+    "podcasts": false,
+    "clonedVoices": false,
+    "thirdPartyQuotes": false,
+    "wealthPromises": false,
+    "healthPromises": false
+  },
+  "qualityGate": {
+    "approved": true,
+    "hookFirstSecond": true,
+    "actionable": true,
+    "noQuotaFiller": true,
+    "reviewedBy": "Clippers Team",
+    "reviewedAt": "2026-08-24T12:00:00.000Z"
+  }
+}

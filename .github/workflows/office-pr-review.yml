@@ -1,0 +1,126 @@
+name: Office PR review (manual, second reviewer)
+
+# Optional second, independent reviewer for a PR. pull_request runs cannot see the office secrets
+# (and must not, for forks), so this is a manual dispatch: given a PR number it enqueues ONE office
+# `claude_review` job for that PR through the same store path the web app uses
+# (script/release-gate/office-review-enqueue.ts -> createOfficeCloudStore().submit). The next office
+# cloud cycle claims it and records a pass/block verdict in the Agents Office.
+#
+# The head SHA read at dispatch time is only recorded for idempotency (one job per PR head); the
+# reviewer reviews whatever head the PR has when it runs. Before trusting a verdict, compare its
+# `review.headSha` with the commit being merged; if they differ, dispatch again.
+#
+#   apply=false (default)  read-only check of the queue (READ ONLY transaction, rolled back)
+#   apply=true             enqueue; idempotent per (PR, head SHA): dispatching twice does not duplicate
+#
+# The trusted code that touches the database comes from OFFICE_SOURCE_REF (variable, else
+# .github/office-config.env), never from the PR.
+# Public logs print only static JSON (status, timestamps, counts).
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request number to review"
+        required: true
+        type: string
+      apply:
+        description: "Enqueue the review (false = read-only check)"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: office-pr-review
+  cancel-in-progress: false
+
+jobs:
+  config:
+    # Resolves OFFICE_SOURCE_REF (variable, else .github/office-config.env) and reports, as true/false
+    # only, whether the database secrets exist (the job is skipped with a notice if not).
+    if: github.repository == 'robertmanzanillag-jpg/blackops' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      contents: read
+    outputs:
+      OFFICE_SOURCE_REF: ${{ steps.cfg.outputs.OFFICE_SOURCE_REF }}
+      ready_review: ${{ steps.cfg.outputs.ready_review }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          sparse-checkout: .github
+          persist-credentials: false
+      - id: cfg
+        env:
+          VARS_JSON: ${{ toJSON(vars) }}
+          SECRET_OFFICE_DATABASE_URL: ${{ secrets.OFFICE_DATABASE_URL != '' }}
+          SECRET_OFFICE_OWNER_ID: ${{ secrets.OFFICE_OWNER_ID != '' }}
+          GROUP_review: "- OFFICE_DATABASE_URL OFFICE_OWNER_ID"
+        run: node .github/office-config.mjs
+
+  enqueue:
+    # Only from main: a dispatch from another branch would run that branch's copy of this file.
+    needs: config
+    if: github.repository == 'robertmanzanillag-jpg/blackops' && github.ref == 'refs/heads/main' && needs.config.outputs.ready_review == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Refuse to run without a reviewed production source
+        env:
+          OFFICE_SOURCE_REF: ${{ needs.config.outputs.OFFICE_SOURCE_REF }}
+        run: |
+          # An empty ref would make actions/checkout fall back to the dispatching branch.
+          if [ -z "$OFFICE_SOURCE_REF" ]; then echo "::error::OFFICE_SOURCE_REF is empty"; exit 1; fi
+
+      - name: Resolve the PR head
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]{0,6}$ ]] || { echo "::error::pr_number must be a number"; exit 1; }
+          gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '{state, url: .html_url, sha: .head.sha, base: .base.ref}' > pr.json
+          state=$(jq -r .state pr.json); url=$(jq -r .url pr.json); sha=$(jq -r .sha pr.json); base=$(jq -r .base pr.json)
+          [ "$state" = open ] || { echo "::error::PR is not open"; exit 1; }
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::unexpected head SHA"; exit 1; }
+          echo "PR #$PR_NUMBER into $base at ${sha:0:12}"
+          { echo "url=$url"; echo "sha=$sha"; } >> "$GITHUB_OUTPUT"
+
+      - name: Check out the reviewed production source (not the PR)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.config.outputs.OFFICE_SOURCE_REF }}
+          persist-credentials: false
+
+      - name: Verify the reviewed script exists
+        run: test -f script/release-gate/office-review-enqueue.ts && test -f server/office-cloud-store.ts
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Enqueue (or check) the office review
+        env:
+          NODE_ENV: production
+          DATABASE_URL: ${{ secrets.OFFICE_DATABASE_URL }}
+          DEFAULT_USER_ID: ${{ secrets.OFFICE_OWNER_ID }}
+          PR_URL: ${{ steps.pr.outputs.url }}
+          HEAD_SHA: ${{ steps.pr.outputs.sha }}
+          APPLY: ${{ inputs.apply }}
+        run: |
+          set -euo pipefail
+          if [ "$APPLY" = "true" ]; then
+            node --import tsx script/release-gate/office-review-enqueue.ts "--pr-url=$PR_URL" "--head-sha=$HEAD_SHA" --apply
+          else
+            node --import tsx script/release-gate/office-review-enqueue.ts "--pr-url=$PR_URL" "--head-sha=$HEAD_SHA"
+          fi

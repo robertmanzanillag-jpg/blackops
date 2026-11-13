@@ -1,0 +1,78 @@
+{
+  "objective": "Make Clippers perform a real zero-cost daily discover-to-publish-to-learn cycle with explicit rights, quality, idempotency, and observable failure gates.",
+  "branch": "codex/clippers-ceo-runtime-ready",
+  "cards": [
+    {
+      "id": "runtime-worker",
+      "title": "Repair persistent worker and LaunchAgent",
+      "owner": "runtime_worker",
+      "state": "done",
+      "scope": ["script/clippers-free-local-worker.mjs", "script/install-clippers-free-local-worker-launch-agent.sh", "tests/clippers-free-local-worker.test.mjs", "tests/clippers-launch-agent-installer.test.mjs"],
+      "acceptance": ["worker does not silently disable authorized delivery", "installer points at the selected repo root", "failures are observable and retry-safe"],
+      "merge_gate": "focused worker and installer tests pass"
+    },
+    {
+      "id": "ceo-state",
+      "title": "Repair CEO decision state and stale-campaign handling",
+      "owner": "ceo_state",
+      "state": "done",
+      "scope": ["script/clippers-streamer-growth-ceo.mjs", "tests/clippers-streamer-growth-ceo.test.mjs"],
+      "acceptance": ["daily target and authorization remain explicit", "stale campaigns fail closed with useful next action", "typed decision output is usable by delivery"],
+      "merge_gate": "focused CEO tests pass"
+    },
+    {
+      "id": "metricool-delivery",
+      "title": "Harden Metricool media upload and autopilot delivery",
+      "owner": "metricool_delivery",
+      "state": "done",
+      "scope": ["script/clippers-metricool-autopilot.mjs", "script/clippers-upload-metricool-media.ts", "tests/clippers-metricool-autopilot.test.mjs", "tests/clippers-upload-metricool-media.test.ts"],
+      "acceptance": ["deduplicated schedule requests", "proof-backed success state", "no post when media or campaign gates fail"],
+      "merge_gate": "focused Metricool tests pass"
+    },
+    {
+      "id": "runtime-audit",
+      "title": "Audit end-to-end gaps and propose integration tests",
+      "owner": "runtime_auditor",
+      "state": "done",
+      "scope": ["read-only repository audit"],
+      "acceptance": ["root causes ranked", "specific integration gaps identified", "no overlapping edits"],
+      "merge_gate": "handoff reviewed by integrator"
+    },
+    {
+      "id": "marketplace-intake",
+      "title": "Normalize fresh authorized marketplace supply",
+      "owner": "marketplace_intake",
+      "state": "done",
+      "scope": ["script/clippers-marketplace-intake.mjs", "tests/clippers-marketplace-intake.test.mjs", "docs/clippers-marketplace-intake.md"],
+      "acceptance": ["local snapshots only", "rights and freshness fail closed", "zero cost"],
+      "merge_gate": "focused intake tests pass"
+    },
+    {
+      "id": "post-publish",
+      "title": "Reconcile scheduled posts with public TikTok proof",
+      "owner": "post_publish_bridge",
+      "state": "done",
+      "scope": ["script/clippers-reconcile-publications.mjs", "tests/clippers-reconcile-publications.test.mjs"],
+      "acceptance": ["exact public account URL required", "metrics never invented", "idempotent updates"],
+      "merge_gate": "focused reconciliation tests pass"
+    },
+    {
+      "id": "observability",
+      "title": "Expose honest safe runtime status",
+      "owner": "runtime_observability",
+      "state": "done",
+      "scope": ["server/clippers-runtime-status.ts", "server/routes.ts", "tests/clippers-runtime-status.test.ts"],
+      "acceptance": ["never-run and stale states visible", "no secrets or local paths exposed"],
+      "merge_gate": "focused status tests and typecheck pass"
+    },
+    {
+      "id": "integration",
+      "title": "Integrate, test, and prepare PR",
+      "owner": "root",
+      "state": "done",
+      "scope": ["integration and non-overlapping glue/tests/docs"],
+      "acceptance": ["end-to-end dry run produces an observable report", "focused and broader tests pass", "PR opened"],
+      "merge_gate": "independent review and App QA passed; PR required before activation"
+    }
+  ]
+}

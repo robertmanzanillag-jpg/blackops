@@ -1,0 +1,39 @@
+name: Factory build recovery checks
+on:
+  push:
+    branches: [codex/asistente-build-recovery]
+permissions: {}
+jobs:
+  postgres-recovery:
+    if: github.repository == 'robertmanzanillag-jpg/blackops' && github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Fetch exact public reviewed source
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_SHA" =~ ^[a-f0-9]{40}$ ]]
+          mkdir checkout source
+          git -C checkout init --quiet
+          git -C checkout -c credential.helper= fetch --quiet --depth 1 https://github.com/robertmanzanillag-jpg/blackops.git "$GITHUB_SHA"
+          test "$(git -C checkout rev-parse FETCH_HEAD)" = "$GITHUB_SHA"
+          git -C checkout archive FETCH_HEAD | tar --exclude='credentials' --exclude='secrets' -x -C source
+      - name: Install dependencies without package lifecycle scripts
+        working-directory: source
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Real isolated PostgreSQL recovery transactions
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          pg_bin=$(find /usr/lib/postgresql -mindepth 2 -maxdepth 2 -type d -name bin | sort -V | tail -1)
+          test -x "$pg_bin/initdb"
+          test -x "$pg_bin/pg_ctl"
+          FACTORY_TEST_POSTGRES_BIN="$pg_bin" node --import tsx --test tests/software-factory-build-recovery.test.ts tests/software-factory-pipeline.test.ts tests/software-factory-proposal-runtime.test.ts
+      - name: Typecheck trusted operator
+        working-directory: source
+        run: node node_modules/typescript/bin/tsc --noEmit --incremental false
+      - name: Build production bundle
+        working-directory: source
+        run: node --import tsx script/build.ts

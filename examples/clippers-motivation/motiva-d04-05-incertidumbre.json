@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "shortId": "motiva-d04-05-incertidumbre",
+  "channelId": "motivation-es",
+  "language": "es",
+  "format": "youtube_short_9x16",
+  "launchDay": 4,
+  "launchPosition": 5,
+  "topic": "incertidumbre",
+  "script": {
+    "hook": "No tienes el mapa completo, pero seguir esperando tampoco lo dibuja.",
+    "beats": [
+      "Define una hipótesis pequeña, prueba sin comprometerlo todo y observa qué cambia.",
+      "El próximo dato útil suele aparecer después de una acción medida, no antes."
+    ],
+    "close": "Diseña hoy una prueba reversible y fija qué resultado vas a observar.",
+    "originality": {
+      "status": "owned_original",
+      "author": "Equipo Clippers",
+      "thirdPartyQuotes": false,
+      "thirdPartySpeeches": false,
+      "sources": []
+    },
+    "structure": {
+      "conflict": "hook",
+      "idea": "beats",
+      "action": "close"
+    }
+  },
+  "audio": {
+    "mode": "procedural_original",
+    "durationSeconds": 28,
+    "seed": 260824019,
+    "parameters": {
+      "noiseColor": "pink",
+      "amplitude": 0.12,
+      "highpassHz": 70,
+      "lowpassHz": 3400,
+      "volumeDb": -15,
+      "fadeSeconds": 1.4
+    },
+    "provenance": {
+      "status": "owned_original",
+      "generator": "ffmpeg_lavfi_anoisesrc_v1",
+      "thirdPartyAssets": false,
+      "networkUsed": false,
+      "paidCostUsd": 0
+    }
+  },
+  "style": {
+    "backgroundColor": "#422006"
+  },
+  "contentSafety": {
+    "celebrities": false,
+    "podcasts": false,
+    "clonedVoices": false,
+    "thirdPartyQuotes": false,
+    "wealthPromises": false,
+    "healthPromises": false
+  },
+  "qualityGate": {
+    "approved": true,
+    "hookFirstSecond": true,
+    "actionable": true,
+    "noQuotaFiller": true,
+    "reviewedBy": "Equipo Clippers",
+    "reviewedAt": "2026-08-24T12:00:00.000Z"
+  }
+}

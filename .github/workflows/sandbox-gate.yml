@@ -1,0 +1,412 @@
+name: Sandbox release gate
+
+# "Super picky" release gate for BlackOps / Daily Planner. Nothing reaches Replit unless the
+# single summary check `release-gate` is green. See docs/release-gate.md.
+#
+# Runs on every PR into the production branch (main), on every push to main (verifies the merged
+# result before the Replit sync), and manually
+# for any ref. It NEVER uses repository secrets, the production database or provider keys:
+#   - sandbox: ephemeral PostgreSQL service container, schema push + the explicit migration scripts
+#     (dry-run, apply, re-apply), seeded sandbox owner, production build, production boot through
+#     script/replit-fast-start.mjs with dummy configuration, HTTP + browser smoke suite.
+#   - typecheck: full `tsc --noEmit`.
+#   - tests: EVERY tests/*.test.{ts,mjs}; only failures tracked in script/release-gate/known-failures.json
+#     are tolerated, and the factory test list (read from the factory workflows) must be 100% green.
+#   - import-check: every changed server/shared/client file still loads.
+#   - hygiene: diff hygiene (secrets, env/key files, pinned workflow, protected files) + actionlint.
+#
+# Since 2026-11-13 main is the single production branch (claude/integration-20261111 was merged into
+# it), so PRs into main get the full application sandbox.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag or full SHA to test in the sandbox"
+        required: true
+        type: string
+        default: main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sandbox-gate-${{ github.event.pull_request.number || inputs.ref || github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+  # Production branch: the base used for change detection on pushes and manual runs.
+  PRODUCTION_BRANCH: main
+
+jobs:
+  scope:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    outputs:
+      app: ${{ steps.scope.outputs.app }}
+    steps:
+      - id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          # main is the production branch: every PR and push gets the full application sandbox.
+          app=true
+          echo "event=$EVENT base=${BASE_REF:-n/a} app=$app"
+          echo "app=$app" >> "$GITHUB_OUTPUT"
+
+  hygiene:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.ref || '' }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Resolve the base of this change
+        id: base
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if ! git rev-parse -q --verify 'HEAD^1' >/dev/null; then
+            # Root commit (first push of a fresh repository): there is no change to compare.
+            echo "::notice::root commit: no base to compare; diff hygiene skipped"
+            echo "base=" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          case "$EVENT" in
+            pull_request) base=$(git rev-parse HEAD^1) ;;  # merge commit: first parent = target branch
+            push) if [[ "$BEFORE" =~ ^[0-9a-f]{40}$ ]] && [ "$BEFORE" != 0000000000000000000000000000000000000000 ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then base=$BEFORE; else base=$(git rev-parse HEAD^1); fi ;;
+            *) base=$(git merge-base HEAD "origin/$PRODUCTION_BRANCH" 2>/dev/null || git rev-parse HEAD^1) ;;
+          esac
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "Comparing $(git rev-parse --short "$base")..$(git rev-parse --short HEAD)"
+      - name: Diff hygiene
+        if: steps.base.outputs.base != ''
+        env:
+          GATE_PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          GATE_REQUIRE_LABELS: ${{ github.event_name == 'pull_request' }}
+          BASE: ${{ steps.base.outputs.base }}
+        run: |
+          set -euo pipefail
+          # Run the BASE branch's copy so a PR cannot weaken the check that judges it. Only when the
+          # base has no copy yet (the PR that introduces the gate) is the PR's own copy used.
+          if git show "$BASE:script/release-gate/diff-hygiene.mjs" > "$RUNNER_TEMP/diff-hygiene.mjs" 2>/dev/null; then
+            echo "diff hygiene: using the base branch copy"
+          else
+            echo "::notice::diff hygiene: base has no copy yet; using this change's copy"
+            cp script/release-gate/diff-hygiene.mjs "$RUNNER_TEMP/diff-hygiene.mjs"
+          fi
+          node "$RUNNER_TEMP/diff-hygiene.mjs" --base "$BASE"
+      - name: Workflow lint (yaml + actionlint)
+        run: |
+          set -euo pipefail
+          for file in .github/workflows/*.yml; do
+            ruby -ryaml -e 'YAML.safe_load(File.read(ARGV[0]), aliases: true)' "$file"
+          done
+          curl -fsSL -o actionlint.tgz https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz
+          echo "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757  actionlint.tgz" | sha256sum -c -
+          tar -xzf actionlint.tgz actionlint
+          # -shellcheck= : style findings inside long-standing run blocks are not release blockers;
+          # expression, syntax, permission and action-input errors are.
+          ./actionlint -color -shellcheck= .github/workflows/*.yml
+
+  typecheck:
+    needs: scope
+    if: needs.scope.outputs.app == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.ref || '' }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Full typecheck
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+        run: npx tsc --noEmit --incremental false
+
+  tests:
+    needs: scope
+    if: needs.scope.outputs.app == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.ref || '' }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Tools, browser, PostgreSQL binaries and build output the tests rely on
+        run: |
+          set -euo pipefail
+          # ffmpeg (media renders), zsh (operator wrappers); origin/main (launch-agent installer test).
+          sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg zsh > /dev/null
+          # Anonymous fetch of the public repository, retried; only one allowlisted test needs it.
+          for attempt in 1 2 3; do
+            if git -c credential.helper= fetch --quiet --depth=1 "https://github.com/$GITHUB_REPOSITORY.git" +refs/heads/main:refs/remotes/origin/main; then break; fi
+            if [ "$attempt" = 3 ]; then echo "::warning::could not fetch main; tests needing origin/main will fail"; fi
+            sleep 5
+          done
+          npx playwright install chromium
+          # Browser QA and bundle tests read dist/ (index.html, table.sql).
+          npm run build > "$RUNNER_TEMP/build.log" 2>&1 || { tail -60 "$RUNNER_TEMP/build.log"; exit 1; }
+          pg_bin=$(find /usr/lib/postgresql -mindepth 2 -maxdepth 2 -type d -name bin | sort -V | tail -1)
+          test -x "$pg_bin/initdb"
+          echo "FACTORY_TEST_POSTGRES_BIN=$pg_bin" >> "$GITHUB_ENV"
+      - name: Complete node:test suite (new failures fail the gate)
+        env:
+          GATE_TEST_TIMEOUT_MS: '420000'
+        run: |
+          mkdir -p gate-report
+          node script/release-gate/run-tests.mjs --out gate-report/tests.json \
+            --strict-from .github/workflows/factory-candidate-checks.yml,.github/workflows/factory-build-recovery-checks.yml
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: release-gate-tests
+          path: gate-report/tests.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  import-check:
+    needs: scope
+    if: needs.scope.outputs.app == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.ref || '' }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Every changed server/shared/client file still imports
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if ! git rev-parse -q --verify 'HEAD^1' >/dev/null; then
+            # Root commit (first push of a fresh repository): no changed files to compare; the full
+            # typecheck and the test suite still cover the whole tree.
+            echo "::notice::root commit: no base to compare; import check skipped"; exit 0
+          fi
+          case "$EVENT" in
+            pull_request) base=$(git rev-parse HEAD^1) ;;
+            push) if [[ "$BEFORE" =~ ^[0-9a-f]{40}$ ]] && [ "$BEFORE" != 0000000000000000000000000000000000000000 ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then base=$BEFORE; else base=$(git rev-parse HEAD^1); fi ;;
+            *) base=$(git merge-base HEAD "origin/$PRODUCTION_BRANCH" 2>/dev/null || git rev-parse HEAD^1) ;;
+          esac
+          node script/release-gate/import-check.mjs --base "$base"
+
+  sandbox:
+    needs: scope
+    if: needs.scope.outputs.app == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: sandbox
+          POSTGRES_PASSWORD: sandbox
+          POSTGRES_DB: sandbox
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sandbox -d sandbox"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      # Ephemeral database inside this runner only. Never a real database.
+      DATABASE_URL: postgres://sandbox:sandbox@127.0.0.1:5432/sandbox
+      GATE_REPORT_DIR: ${{ github.workspace }}/gate-report
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.ref || '' }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Schema (drizzle push) and explicit migrations against the ephemeral database
+        run: |
+          set -euo pipefail
+          mkdir -p "$GATE_REPORT_DIR"
+          npx drizzle-kit push --force
+          # Each migration: dry run (rolled back), apply, and a second apply to prove idempotency.
+          for migration in office-cloud-migrate software-factory-migrate office-source-documents-migrate; do
+            node --import tsx "script/$migration.ts"
+            node --import tsx "script/$migration.ts" --apply
+            node --import tsx "script/$migration.ts" --apply
+          done | tee "$GATE_REPORT_DIR/migrations.jsonl"
+      - name: Seed a sandbox owner
+        run: |
+          set -euo pipefail
+          # Random per run, sandbox-only; masked anyway.
+          GATE_OWNER_PASSWORD="sandbox-$(openssl rand -hex 12)"
+          echo "::add-mask::$GATE_OWNER_PASSWORD"
+          export GATE_OWNER_PASSWORD
+          id=$(node --import tsx script/create-local-user.ts --username=sandbox-owner --password-env=GATE_OWNER_PASSWORD --print-user-id | tail -1)
+          [[ "$id" =~ ^[0-9a-f-]{36}$ ]]
+          session_secret="sandbox-$(openssl rand -hex 32)"
+          echo "::add-mask::$session_secret"
+          { echo "GATE_USER_ID=$id"; echo "GATE_OWNER_USERNAME=sandbox-owner"; echo "GATE_OWNER_PASSWORD=$GATE_OWNER_PASSWORD"; echo "SESSION_SECRET=$session_secret"; } >> "$GITHUB_ENV"
+      - name: Production build
+        run: |
+          set -euo pipefail
+          npm run build > "$GATE_REPORT_DIR/build.log" 2>&1 || { tail -80 "$GATE_REPORT_DIR/build.log"; exit 1; }
+          tail -5 "$GATE_REPORT_DIR/build.log"
+          test -f dist/index.cjs && test -f dist/public/index.html
+      - name: Boot in production mode with dummy configuration
+        run: |
+          set -euo pipefail
+          # No provider keys, no Replit identity, no webhooks, no background publishing.
+          env -i PATH="$PATH" HOME="$HOME" \
+            NODE_ENV=production PORT=5055 REPLIT_UPSTREAM_PORT=5056 \
+            DATABASE_URL="$DATABASE_URL" SESSION_SECRET="$SESSION_SECRET" DEFAULT_USER_ID="$GATE_USER_ID" \
+            RESOURCE_INTENSIVE_SCHEDULERS_ENABLED=false CLIPPERS_LOCAL_NEWS_SCHEDULER_ENABLED=false \
+            TELEGRAM_AUTO_SETUP_WEBHOOK=false OFFICE_WEB_SOURCE_EXPORT_ENABLED=false \
+            nohup node script/replit-fast-start.mjs > "$GATE_REPORT_DIR/boot.log" 2>&1 &
+          echo $! > "$GATE_REPORT_DIR/app.pid"
+          for i in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:5055/api/health 2>/dev/null | grep -q '"ready":true'; then echo "ready after ${i}s"; exit 0; fi
+            if ! kill -0 "$(cat "$GATE_REPORT_DIR/app.pid")" 2>/dev/null; then echo "::error::app exited during boot"; tail -50 "$GATE_REPORT_DIR/boot.log"; exit 1; fi
+            sleep 1
+          done
+          echo "::error::app not ready after 90s"; tail -50 "$GATE_REPORT_DIR/boot.log"; exit 1
+      - name: Browser for the smoke suite
+        run: npx playwright install chromium
+      - name: Smoke suite (health, auth boundary, authenticated APIs, key pages)
+        run: node script/release-gate/smoke.mjs
+      - name: App survived the suite and logged no crashes
+        if: always()
+        run: |
+          set -euo pipefail
+          test -f "$GATE_REPORT_DIR/app.pid" || exit 1
+          kill -0 "$(cat "$GATE_REPORT_DIR/app.pid")" || { echo "::error::app process died"; exit 1; }
+          curl -fsS http://127.0.0.1:5055/api/health | grep -q '"ready":true' || { echo "::error::app no longer healthy"; exit 1; }
+          if grep -nE 'UnhandledPromiseRejection|uncaughtException|FATAL|Segmentation fault|JavaScript heap out of memory|application exited' "$GATE_REPORT_DIR/boot.log"; then
+            echo "::error::crash signature in the sandbox server log"; exit 1
+          fi
+      - name: Stop the sandbox app
+        if: always()
+        run: |
+          if [ -f "$GATE_REPORT_DIR/app.pid" ]; then kill "$(cat "$GATE_REPORT_DIR/app.pid")" 2>/dev/null || true; fi
+      - name: Schema drift guard (db:push must never propose a DROP)
+        run: |
+          set -euo pipefail
+          # Runs after the migrations and after the app created its runtime tables, against the
+          # ephemeral database only. Without a TTY drizzle-kit APPLIES non-destructive statements
+          # directly and aborts at the confirmation prompt when a statement would lose data (it
+          # prints those statements first). Either way the only acceptable outcome is "No changes
+          # detected": a DROP/data-loss statement is what `npm run db:push` would do to production,
+          # and any applied statement means the schema and the migrations disagree.
+          npx drizzle-kit push --verbose < /dev/null > "$GATE_REPORT_DIR/schema-drift.log" 2>&1 || true
+          if grep -niE 'DROP (TABLE|COLUMN|SCHEMA|TYPE|CONSTRAINT|INDEX|SEQUENCE|VIEW)|SET DATA TYPE|data[- ]loss|truncate' "$GATE_REPORT_DIR/schema-drift.log"; then
+            echo "::error file=drizzle.config.ts::db:push would drop, retype or truncate data; add the table to tablesFilter or to shared/schema.ts"
+            exit 1
+          fi
+          if ! grep -q 'No changes detected' "$GATE_REPORT_DIR/schema-drift.log"; then
+            applied=$(grep -cE '^(CREATE|ALTER|DROP|COMMENT|INSERT|UPDATE|DELETE) ' "$GATE_REPORT_DIR/schema-drift.log" || true)
+            tail -30 "$GATE_REPORT_DIR/schema-drift.log"
+            echo "::error::schema drift: db:push did not report 'No changes detected' after the migrations ($applied statement(s) applied or proposed)"
+            exit 1
+          fi
+          echo "schema in sync, no destructive statements"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: release-gate-sandbox
+          path: gate-report/
+          if-no-files-found: error
+          retention-days: 14
+
+  release-gate:
+    # Single required check. Mark ONLY this job as required in branch protection.
+    needs: [scope, hygiene, typecheck, tests, import-check, sandbox]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: needs.scope.outputs.app == 'true'
+        continue-on-error: true
+        with:
+          path: artifacts
+      - name: Verdict
+        env:
+          APP: ${{ needs.scope.outputs.app }}
+          SCOPE: ${{ needs.scope.result }}
+          HYGIENE: ${{ needs.hygiene.result }}
+          TYPECHECK: ${{ needs.typecheck.result }}
+          TESTS: ${{ needs.tests.result }}
+          IMPORTS: ${{ needs['import-check'].result }}
+          SANDBOX: ${{ needs.sandbox.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p report
+          {
+            echo "# Release gate"
+            echo
+            echo "| Check | Result |"
+            echo "| --- | --- |"
+            echo "| scope (app sandbox: $APP) | $SCOPE |"
+            echo "| diff hygiene + workflow lint | $HYGIENE |"
+            echo "| typecheck | $TYPECHECK |"
+            echo "| full test suite + factory list | $TESTS |"
+            echo "| changed files import | $IMPORTS |"
+            echo "| sandbox (ephemeral DB, build, boot, smoke) | $SANDBOX |"
+            if [ -f artifacts/release-gate-tests/tests.json ]; then
+              node -e 'const r=require("./artifacts/release-gate-tests/tests.json");console.log(`\nTests: ${r.passed}/${r.total} files passed, ${r.knownFailing.length} known failures, ${r.newFailures.length} new, ${r.staleEntries.length} stale allowlist entries.`);for(const f of r.newFailures)console.log(`- NEW: ${f.file} (${f.status}${f.strict?", factory list":""})`);for(const f of r.staleEntries)console.log(`- STALE: ${f.file}: ${f.reason}`)'
+            fi
+            if [ -f artifacts/release-gate-sandbox/smoke.json ]; then
+              node -e 'const r=require("./artifacts/release-gate-sandbox/smoke.json");console.log(`\nSmoke: ${r.passed}/${r.passed+r.failed} checks passed.`);for(const c of r.checks.filter(c=>!c.ok))console.log(`- FAIL: ${c.name}${c.note?` (${c.note})`:""}`);if(r.toleratedSandboxIntegrations.length)console.log(`- sandbox-only integrations tolerated: ${r.toleratedSandboxIntegrations.join(", ")}`)'
+            fi
+            echo
+            echo "Run: $RUN_URL"
+          } > report/release-gate.md
+          cat report/release-gate.md >> "$GITHUB_STEP_SUMMARY"
+          cat report/release-gate.md
+          ok() { [ "$1" = success ]; }
+          ok "$SCOPE" && ok "$HYGIENE" || { echo "::error::release gate failed"; exit 1; }
+          if [ "$APP" = true ]; then
+            for result in "$TYPECHECK" "$TESTS" "$IMPORTS" "$SANDBOX"; do ok "$result" || { echo "::error::release gate failed"; exit 1; }; done
+          fi
+          echo "release gate passed"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: release-gate-report
+          path: report/release-gate.md
+          if-no-files-found: warn
+          retention-days: 30

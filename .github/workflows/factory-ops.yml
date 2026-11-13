@@ -1,0 +1,153 @@
+name: Factory operations (manual)
+
+# Operator actions for the Software Factory database, run from the reviewed production source
+# (OFFICE_SOURCE_REF: variable, else .github/office-config.env) with the same database secret the office worker uses, so nobody has to
+# paste a connection string into a shell.
+#
+#   status           read-only (BEGIN TRANSACTION READ ONLY, always rolled back)
+#   migrate-dry-run  creates the factory tables inside a transaction, verifies them, rolls back
+#   migrate-apply    commits the additive factory schema; requires confirm=APLICAR
+#   office-status    read-only office diagnostic (script/office-status.ts), always rolled back
+#
+# This repository is public, so job logs are public: the scripts print only static JSON
+# (table presence, pause flag, budget/job counts) and static error codes, never connection
+# details. The shared credit ledger is intentionally not reported here. office-status prints only
+# enum codes, counts, dates and ages (no user/worker/job ids, URLs, free text, prompts or answers).
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "status | migrate-dry-run | migrate-apply | office-status | sources-migrate-dry-run | sources-migrate-apply"
+        required: true
+        type: choice
+        default: status
+        options:
+          - status
+          - migrate-dry-run
+          - migrate-apply
+          - office-status
+          - sources-migrate-dry-run
+          - sources-migrate-apply
+      confirm:
+        description: "Type APLICAR to allow migrate-apply"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: factory-ops
+  cancel-in-progress: false
+
+jobs:
+  config:
+    # Resolves OFFICE_SOURCE_REF (variable, else .github/office-config.env) and reports, as true/false
+    # only, whether the database secrets exist (the job is skipped with a notice if not).
+    if: github.repository == 'robertmanzanillag-jpg/blackops'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    outputs:
+      OFFICE_SOURCE_REF: ${{ steps.cfg.outputs.OFFICE_SOURCE_REF }}
+      ready_ops: ${{ steps.cfg.outputs.ready_ops }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          sparse-checkout: .github
+          persist-credentials: false
+      - id: cfg
+        env:
+          VARS_JSON: ${{ toJSON(vars) }}
+          SECRET_OFFICE_DATABASE_URL: ${{ secrets.OFFICE_DATABASE_URL != '' }}
+          SECRET_OFFICE_OWNER_ID: ${{ secrets.OFFICE_OWNER_ID != '' }}
+          GROUP_ops: "- OFFICE_DATABASE_URL OFFICE_OWNER_ID"
+        run: node .github/office-config.mjs
+
+  factory-ops:
+    needs: config
+    if: github.repository == 'robertmanzanillag-jpg/blackops' && needs.config.outputs.ready_ops == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Refuse an unconfirmed apply
+        if: (inputs.action == 'migrate-apply' || inputs.action == 'sources-migrate-apply') && inputs.confirm != 'APLICAR'
+        run: |
+          echo "migrate-apply requires confirm=APLICAR" >&2
+          exit 1
+
+      - name: Refuse to run without a reviewed production source
+        env:
+          OFFICE_SOURCE_REF: ${{ needs.config.outputs.OFFICE_SOURCE_REF }}
+        run: |
+          # An empty ref would make actions/checkout fall back to the dispatching branch.
+          if [ -z "$OFFICE_SOURCE_REF" ]; then echo "::error::OFFICE_SOURCE_REF is empty"; exit 1; fi
+
+      - name: Check out the reviewed production source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.config.outputs.OFFICE_SOURCE_REF }}
+          persist-credentials: false
+
+      - name: Verify the reviewed scripts exist
+        env:
+          ACTION: ${{ inputs.action }}
+        run: |
+          set -euo pipefail
+          # Only require the script(s) the chosen action runs.
+          case "$ACTION" in
+            status) test -f script/software-factory-status.ts ;;
+            migrate-dry-run|migrate-apply) test -f script/software-factory-migrate.ts ;;
+            office-status) test -f script/office-status.ts ;;
+            sources-migrate-dry-run|sources-migrate-apply) test -f script/office-source-documents-migrate.ts ;;
+            *) echo "unknown action" >&2; exit 1 ;;
+          esac
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies (no lifecycle scripts; esbuild rebuilt explicitly for tsx)
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm rebuild esbuild
+
+      - name: Run ${{ inputs.action }}
+        if: inputs.action == 'status' || inputs.action == 'migrate-dry-run' || inputs.action == 'migrate-apply'
+        env:
+          NODE_ENV: production
+          DATABASE_URL: ${{ secrets.FACTORY_DATABASE_URL || secrets.OFFICE_DATABASE_URL }}
+          SOFTWARE_FACTORY_OWNER_ID: ${{ secrets.FACTORY_OWNER_ID || secrets.OFFICE_OWNER_ID }}
+          ACTION: ${{ inputs.action }}
+        run: |
+          set -euo pipefail
+          case "$ACTION" in
+            status) node --import tsx script/software-factory-status.ts ;;
+            migrate-dry-run) node --import tsx script/software-factory-migrate.ts ;;
+            migrate-apply) node --import tsx script/software-factory-migrate.ts --apply ;;
+            *) echo "unknown action" >&2; exit 1 ;;
+          esac
+
+      - name: Run office-status
+        if: inputs.action == 'office-status'
+        env:
+          NODE_ENV: production
+          DATABASE_URL: ${{ secrets.OFFICE_DATABASE_URL }}
+          DEFAULT_USER_ID: ${{ secrets.OFFICE_OWNER_ID }}
+        run: node --import tsx script/office-status.ts
+
+      - name: Run ${{ inputs.action }} (office source documents)
+        if: inputs.action == 'sources-migrate-dry-run' || inputs.action == 'sources-migrate-apply'
+        env:
+          NODE_ENV: production
+          DATABASE_URL: ${{ secrets.OFFICE_DATABASE_URL }}
+          ACTION: ${{ inputs.action }}
+        run: |
+          set -euo pipefail
+          if [ "$ACTION" = "sources-migrate-apply" ]; then
+            node --import tsx script/office-source-documents-migrate.ts --apply
+          else
+            node --import tsx script/office-source-documents-migrate.ts
+          fi

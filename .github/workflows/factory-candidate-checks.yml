@@ -1,0 +1,174 @@
+name: Factory candidate checks
+on:
+  push:
+    branches: ['factory/**', codex/factory-once, codex/office-real-execution-20261107, codex/office-editorial-revenue-20261107, codex/office-editorial-claim-contract-20261107, codex/office-editorial-recovery-20261107, codex/office-factory-evidence, codex/office-marketing-persistence-20261107, codex/office-capability-lifecycle-20261107, codex/office-source-boundaries, codex/asistente-factory-integration, codex/asistente-factory-executor, codex/asistente-factory-proposals, codex/asistente-factory-live-adapters, codex/asistente-factory-model-transport, codex/office-role-completion-20261106, codex/asistente-browser-bridge, codex/asistente-factory-operator, codex/office-training-fairness-20261107, codex/office-export-isolation-20261107, codex/factory-timeout-acceptance, codex/office-triage-prompt-fix-20261107, codex/factory-windows-runner, codex/asistente-artifact-hosts, codex/factory-scoped-export, codex/asistente-deadline-fixture]
+permissions: {}
+concurrency:
+  group: factory-candidate-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  isolated-checks:
+    if: github.repository == 'robertmanzanillag-jpg/blackops' && github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      FACTORY_IMAGE: docker.io/library/node@sha256:c0a93797ee78814ae6d32fcca2561fdbbe423149c3f5389aad32d86e9fd85bd4
+    steps:
+      - name: Prepare exact public source and isolated dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_SHA" =~ ^[a-f0-9]{40}$ ]]
+          mkdir source dependencies checkout
+          git -C checkout init --quiet
+          git -C checkout -c credential.helper= fetch --quiet --depth 1 https://github.com/robertmanzanillag-jpg/blackops.git "$GITHUB_SHA"
+          test "$(git -C checkout rev-parse FETCH_HEAD)" = "$GITHUB_SHA"
+          git -C checkout archive FETCH_HEAD | tar --exclude='credentials' --exclude='secrets' -x -C source
+          test -z "$(find source -type l -print -quit)"
+          test -z "$(find source -type d \( -name .git -o -name node_modules -o -name credentials -o -name secrets \) -print -quit)"
+          test -z "$(find source -type f \( -name '.env' -o -name '.env.*' -o -name '*.pem' -o -name '*.key' \) -print -quit)"
+          cp source/package.json source/package-lock.json dependencies/
+          container="factory-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-deps"
+          cleanup() { timeout --kill-after=5 10 docker rm -f "$container" >/dev/null 2>&1 || true; remaining=$(timeout --kill-after=5 10 docker ps -aq --filter "name=^/${container}$") || return 1; test -z "$remaining"; }
+          trap 'status=$?; cleanup || status=1; exit "$status"' EXIT
+          timeout --kill-after=5 120 docker pull "$FACTORY_IMAGE" >/dev/null
+          timeout --kill-after=10 300 docker run --rm --name "$container" --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --user "$(id -u):$(id -g)" --memory 3g --cpus 2 --pids-limit 128 \
+            --tmpfs /tmp:rw,nosuid,size=512m --env HOME=/tmp \
+            --mount "type=bind,src=$PWD/dependencies,dst=/dependencies" --workdir /dependencies \
+            "$FACTORY_IMAGE" npm ci --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org
+          test ! -L dependencies/node_modules/.vite-temp
+          mkdir -p dependencies/node_modules/.vite-temp
+      - name: Isolated tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          container="factory-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-tests"
+          cleanup() { timeout --kill-after=5 10 docker rm -f "$container" >/dev/null 2>&1 || true; remaining=$(timeout --kill-after=5 10 docker ps -aq --filter "name=^/${container}$") || return 1; test -z "$remaining"; }
+          trap 'status=$?; cleanup || status=1; exit "$status"' EXIT
+          timeout --kill-after=10 300 docker run --rm --name "$container" --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --user "$(id -u):$(id -g)" --memory 3g --cpus 2 --pids-limit 128 \
+            --tmpfs /tmp:rw,nosuid,exec,size=256m --tmpfs /work:rw,nosuid,size=512m,mode=1777 --tmpfs /dependencies/node_modules/.vite-temp:rw,nosuid,size=32m,mode=1777 --env HOME=/tmp \
+            --mount "type=bind,src=$PWD/source,dst=/source,readonly" \
+            --mount "type=bind,src=$PWD/dependencies/node_modules,dst=/dependencies/node_modules,readonly" \
+            --workdir /work "$FACTORY_IMAGE" sh -c \
+            'cp -R /source/. /work/ && ln -s /dependencies/node_modules /work/node_modules && node --import tsx --test tests/software-factory-once.test.ts tests/software-factory-order-evidence.test.ts tests/software-factory-windows.test.mjs tests/software-factory-role-deadline.test.ts tests/marketing-learning-store.test.ts tests/marketing-learning-routes.test.ts tests/marketing-command-center.test.ts tests/office-capability-training.test.ts tests/office-capability-lifecycle.test.ts tests/office-training-receipts.test.ts tests/office-role-academy.test.ts tests/office-role-academy-integration.test.ts tests/office-role-audits.test.ts tests/office-role-curricula.test.ts tests/office-role-snapshots.test.ts tests/office-role-work.test.ts tests/office-business-work.test.ts tests/office-business-routes.test.ts tests/office-editorial-work.test.ts tests/office-editorial-scheduler.test.ts tests/office-revenue-work.test.ts tests/office-career-reconciliation.test.ts tests/agent-company.test.ts tests/office-web-role-sources.test.ts tests/office-web-role-store.test.ts tests/office-web-source-scheduler.test.ts tests/office-windows-worker.test.mjs tests/software-factory-asistente-operator.test.ts tests/software-factory-company-scheduler.test.ts tests/software-factory-asistente-source.test.ts tests/software-factory-asistente-review.test.ts tests/software-factory-github-transport.test.ts tests/software-factory-office-connection.test.ts tests/software-factory-office-mode.test.ts tests/software-factory-proposal-runtime.test.ts tests/office-shared-credits.test.ts tests/office-execution.test.ts tests/office-openai.test.ts tests/office-academy-runner.test.ts tests/software-factory-asistente-success.test.ts tests/shared-openai-credit-ledger.test.ts tests/shared-openai-credit-store.test.ts tests/software-factory-asistente-build.test.ts tests/software-factory-company.test.ts tests/software-factory-actions.test.ts tests/software-factory-builder.test.ts tests/software-factory-gcs.test.ts tests/software-factory-github-client.test.ts tests/software-factory-pilot-review.test.ts tests/software-factory-github-publisher.test.ts tests/software-factory-github.test.ts tests/software-factory-loop.test.ts tests/software-factory-object-store.test.ts tests/software-factory-openai-builder.test.ts tests/software-factory-openai.test.ts tests/software-factory-openai-transport.test.ts tests/software-factory-pipeline.test.ts tests/software-factory-remote-builder.test.ts tests/software-factory-routes.test.ts tests/software-factory-runtime.test.ts tests/software-factory-store-provider.test.ts tests/software-factory-store.test.ts tests/software-factory-worker.test.ts tests/software-factory.test.ts tests/software-factory-role-acceptance.test.ts tests/software-factory-ui-static.test.mjs tests/software-factory-office-ui-evidence.test.ts tests/software-factory-office-ui-artifact.test.ts'
+      - name: Isolated build
+        shell: bash
+        run: |
+          set -euo pipefail
+          container="factory-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-build"
+          cleanup() { timeout --kill-after=5 10 docker rm -f "$container" >/dev/null 2>&1 || true; remaining=$(timeout --kill-after=5 10 docker ps -aq --filter "name=^/${container}$") || return 1; test -z "$remaining"; }
+          trap 'status=$?; cleanup || status=1; exit "$status"' EXIT
+          timeout --kill-after=10 300 docker run --rm --name "$container" --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --user "$(id -u):$(id -g)" --memory 3g --cpus 2 --pids-limit 128 \
+            --tmpfs /tmp:rw,nosuid,exec,size=256m --tmpfs /work:rw,nosuid,size=512m,mode=1777 --tmpfs /dependencies/node_modules/.vite-temp:rw,nosuid,size=32m,mode=1777 --env HOME=/tmp \
+            --mount "type=bind,src=$PWD/source,dst=/source,readonly" \
+            --mount "type=bind,src=$PWD/dependencies/node_modules,dst=/dependencies/node_modules,readonly" \
+            --workdir /work "$FACTORY_IMAGE" sh -c \
+            'cp -R /source/. /work/ && ln -s /dependencies/node_modules /work/node_modules && npm run build'
+
+      - name: Isolated browser recovery tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          image='mcr.microsoft.com/playwright@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48'
+          container="factory-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-browser"
+          cleanup() { timeout --kill-after=5 10 docker rm -f "$container" >/dev/null 2>&1 || true; remaining=$(timeout --kill-after=5 10 docker ps -aq --filter "name=^/${container}$") || return 1; test -z "$remaining"; }
+          trap 'status=$?; cleanup || status=1; exit "$status"' EXIT
+          timeout --kill-after=5 180 docker pull "$image" >/dev/null
+          timeout --kill-after=10 300 docker run --rm --init --name "$container" --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --user "$(id -u):$(id -g)" --memory 3g --cpus 2 --pids-limit 256 --shm-size 256m \
+            --tmpfs /tmp:rw,nosuid,size=512m --tmpfs /work:rw,nosuid,size=512m,mode=1777 --env HOME=/tmp \
+            --mount "type=bind,src=$PWD/source,dst=/source,readonly" \
+            --mount "type=bind,src=$PWD/dependencies/node_modules,dst=/dependencies/node_modules,readonly" \
+            --workdir /work "$image" sh -c \
+            'cp -R /source/. /work/ && ln -s /dependencies/node_modules /work/node_modules && node --import tsx --test --test-concurrency=1 tests/software-factory-simulator.test.ts tests/software-factory-panel.test.mjs && node --import tsx tests/marketing-learning-ui.mjs'
+
+      - name: Exact revision backend acceptance
+        if: startsWith(github.ref, 'refs/heads/factory/')
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C checkout -c credential.helper= fetch --quiet --depth 2 https://github.com/robertmanzanillag-jpg/blackops.git "$GITHUB_SHA"
+          test "$(git -C checkout rev-parse FETCH_HEAD)" = "$GITHUB_SHA"
+          parents=$(git -C checkout rev-list --parents -n 1 "$GITHUB_SHA")
+          test "$(wc -w <<< "$parents")" = 2
+          base=$(awk '{print $2}' <<< "$parents")
+          [[ "$base" =~ ^[a-f0-9]{40}$ ]]
+          git -C checkout -c core.hooksPath=/dev/null checkout --quiet --detach "$GITHUB_SHA"
+          mkdir baseline-checkout acceptance-output
+          git -C baseline-checkout init --quiet
+          git -C baseline-checkout -c credential.helper= fetch --quiet --depth 1 https://github.com/robertmanzanillag-jpg/blackops.git "$base"
+          git -C baseline-checkout -c core.hooksPath=/dev/null checkout --quiet --detach "$base"
+          test "$(git -C baseline-checkout rev-parse HEAD)" = "$base"
+          # Root credential namespaces are omitted by the controller export;
+          # every remaining tracked blob is hash-verified before any mount.
+          for tree in baseline-checkout checkout; do
+            test -z "$(find "$tree" \( -path "$tree/.git" -o -path "$tree/credentials" -o -path "$tree/secrets" \) -prune -o -type l -print -quit)"
+            test -z "$(find "$tree" \( -path "$tree/.git" -o -path "$tree/credentials" -o -path "$tree/secrets" \) -prune -o -type d \( -name node_modules -o -name credentials -o -name secrets -o -name .aws -o -name .ssh \) -print -quit)"
+            test -z "$(find "$tree" \( -path "$tree/.git" -o -path "$tree/credentials" -o -path "$tree/secrets" \) -prune -o -type f \( -name '.env' -o -name '.env.*' -o -name '*.pem' -o -name '*.key' -o -name '*.p12' -o -name '*.pfx' -o -name id_rsa -o -name id_ed25519 \) -print -quit)"
+          done
+          cmp baseline-checkout/package.json checkout/package.json
+          cmp baseline-checkout/package-lock.json checkout/package-lock.json
+          # The runner/oracle is the base revision's reviewed code, never the candidate's.
+          git -C baseline-checkout cat-file -e "$base:script/software-factory-role-acceptance.ts"
+          # Host controller owns the artifact. Each tested revision runs in a
+          # different read-only container; neither container mounts this output.
+          cleanup_acceptance() { ids=$(timeout --kill-after=5 10 docker ps -aq --filter "label=office.factory.acceptance=$GITHUB_RUN_ID") || return 1; if [ -n "$ids" ]; then timeout --kill-after=5 15 docker rm -f $ids >/dev/null 2>&1 || true; fi; remaining=$(timeout --kill-after=5 10 docker ps -aq --filter "label=office.factory.acceptance=$GITHUB_RUN_ID") || return 1; test -z "$remaining"; }
+          trap 'status=$?; cleanup_acceptance || status=1; exit "$status"' EXIT
+          # Trusted host imports resolve the isolated lockfile dependencies from
+          # their parent; neither exact Git checkout is modified.
+          # Candidate code is never executed on the host.
+          if [ -e node_modules ] || [ -L node_modules ]; then
+            test -L node_modules
+            test "$(readlink -f node_modules)" = "$(readlink -f dependencies/node_modules)"
+          else
+            ln -s "$PWD/dependencies/node_modules" "$PWD/node_modules"
+          fi
+          FACTORY_QA_ISOLATED=true timeout --kill-after=10 300 node --import ./dependencies/node_modules/tsx/dist/loader.mjs \
+            baseline-checkout/script/software-factory-role-acceptance.ts \
+            "$PWD/baseline-checkout" "$base" "$PWD/checkout" "$GITHUB_SHA" \
+            "$PWD/acceptance-output/acceptance.json" "$PWD/dependencies/node_modules"
+      - name: Save measured backend acceptance
+        if: startsWith(github.ref, 'refs/heads/factory/') && !cancelled()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: office-role-acceptance-v1
+          path: acceptance-output/acceptance.json
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: false
+      - name: Exact revision office UI regression
+        if: startsWith(github.ref, 'refs/heads/factory/')
+        timeout-minutes: 11
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=$(git -C baseline-checkout rev-parse HEAD)
+          # This operator-installed controller must already exist at the trusted base.
+          git -C baseline-checkout cat-file -e "$base:script/software-factory-office-ui-acceptance.ts"
+          cleanup_ui() { ids=$(timeout --kill-after=5 10 docker ps -aq --filter "label=office.factory.ui=$GITHUB_RUN_ID") || return 1; if [ -n "$ids" ]; then timeout --kill-after=5 15 docker rm -f $ids >/dev/null 2>&1 || true; fi; remaining=$(timeout --kill-after=5 10 docker ps -aq --filter "label=office.factory.ui=$GITHUB_RUN_ID") || return 1; test -z "$remaining"; }
+          trap 'status=$?; cleanup_ui || status=1; exit "$status"' EXIT
+          # Trusted host imports resolve the isolated lockfile dependencies from
+          # their parent; neither exact Git checkout is modified.
+          # Candidate code is never executed on the host.
+          if [ -e node_modules ] || [ -L node_modules ]; then
+            test -L node_modules
+            test "$(readlink -f node_modules)" = "$(readlink -f dependencies/node_modules)"
+          else
+            ln -s "$PWD/dependencies/node_modules" "$PWD/node_modules"
+          fi
+          FACTORY_QA_ISOLATED=true timeout --kill-after=10 620 node --import ./dependencies/node_modules/tsx/dist/loader.mjs \
+            baseline-checkout/script/software-factory-office-ui-acceptance.ts \
+            "$PWD/baseline-checkout" "$base" "$PWD/checkout" "$GITHUB_SHA" \
+            "$PWD/office-ui-output" "$PWD/dependencies/node_modules"
+      - name: Save measured office UI regression
+        if: startsWith(github.ref, 'refs/heads/factory/') && !cancelled()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: office-ui-simulation-v1
+          path: office-ui-output
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: false

@@ -1,0 +1,6 @@
+- [Build command migration](build-cmd-migration.md) — deployment build is ["npm","run","build"] (script/build.ts), not script/build-server.js (deleted)
+- [git-fetch-blocked](git-fetch-blocked.md) — git fetch/destructive ops blocked in main agent; use project_tasks for fetching new remote commits
+- [Nix pip install fix](nix-pip-fix.md) — remove --isolated + add PIP_CONFIG_FILE=/dev/null; else "Can not combine --user and --target" on Replit Nix
+- [YouTube bot-block fix](yt-dlp-impersonate.md) — --impersonate chrome via curl-cffi bypasses TLS bot detection on datacenter IPs; bin/yt-dlp v2026.06.09 in workspace
+- [Telegram webhook auto-setup](telegram-webhook-autosetup.md) — servidor auto-genera TELEGRAM_WEBHOOK_SECRET en process.env si falta; webhook siempre se registra al startup sin flag adicional.
+- [Dropshipping CEO start flow](dropshipping-ceo-start.md) — POST /api/dropshipping-ceo/start corre ciclo + envía Telegram con blocker de Shopify; guardrails de aprobación intactos.

@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "shortId": "motiva-d07-04-gratitud-activa",
+  "channelId": "motivation-es",
+  "language": "es",
+  "format": "youtube_short_9x16",
+  "launchDay": 7,
+  "launchPosition": 4,
+  "topic": "gratitud-activa",
+  "script": {
+    "hook": "Agradecer lo que tienes no significa conformarte con lo que falta.",
+    "beats": [
+      "Reconocer recursos, personas y aprendizajes te muestra desde dónde puedes construir el siguiente paso.",
+      "La gratitud activa convierte atención en cuidado y cuidado en una acción útil."
+    ],
+    "close": "Agradece hoy algo específico y úsalo para ayudar o avanzar.",
+    "originality": {
+      "status": "owned_original",
+      "author": "Equipo Clippers",
+      "thirdPartyQuotes": false,
+      "thirdPartySpeeches": false,
+      "sources": []
+    },
+    "structure": {
+      "conflict": "hook",
+      "idea": "beats",
+      "action": "close"
+    }
+  },
+  "audio": {
+    "mode": "procedural_original",
+    "durationSeconds": 27,
+    "seed": 260824033,
+    "parameters": {
+      "noiseColor": "pink",
+      "amplitude": 0.11,
+      "highpassHz": 70,
+      "lowpassHz": 3800,
+      "volumeDb": -17,
+      "fadeSeconds": 1
+    },
+    "provenance": {
+      "status": "owned_original",
+      "generator": "ffmpeg_lavfi_anoisesrc_v1",
+      "thirdPartyAssets": false,
+      "networkUsed": false,
+      "paidCostUsd": 0
+    }
+  },
+  "style": {
+    "backgroundColor": "#134E4A"
+  },
+  "contentSafety": {
+    "celebrities": false,
+    "podcasts": false,
+    "clonedVoices": false,
+    "thirdPartyQuotes": false,
+    "wealthPromises": false,
+    "healthPromises": false
+  },
+  "qualityGate": {
+    "approved": true,
+    "hookFirstSecond": true,
+    "actionable": true,
+    "noQuotaFiller": true,
+    "reviewedBy": "Equipo Clippers",
+    "reviewedAt": "2026-08-24T12:00:00.000Z"
+  }
+}

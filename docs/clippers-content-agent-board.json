@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "initiative": "clippers-sleep-and-motivation",
+  "updatedAt": "2026-08-24T12:00:00-04:00",
+  "constraints": {
+    "sleepVideoMinimumHours": 8,
+    "costUsd": 0,
+    "externalPublishingRequiresVerifiedAuthorizedChannel": true,
+    "originalRightsRequired": true
+  },
+  "cards": [
+    {
+      "id": "sleep-strategy-rights",
+      "title": "Define original sleep and motivation content strategy",
+      "owner": "sleep_strategy_rights",
+      "state": "review",
+      "branch": null,
+      "worktree": null,
+      "acceptance": [
+        "Eight-hour format and publishing cadence are explicit",
+        "All audio, visuals, scripts and voice inputs have provenance gates",
+        "YouTube monetization risks and mitigations are documented"
+      ],
+      "mergeGate": "Evidence-backed strategy handoff accepted"
+    },
+    {
+      "id": "youtube-architecture-audit",
+      "title": "Audit existing YouTube and Clippers architecture",
+      "owner": "youtube_architecture_audit",
+      "state": "review",
+      "branch": null,
+      "worktree": "/private/tmp/asistente-sleep-clippers",
+      "acceptance": [
+        "Existing reusable components are identified",
+        "Account and OAuth blockers are explicit",
+        "Required tests and ownership boundaries are proposed"
+      ],
+      "mergeGate": "Read-only audit contains file-level evidence"
+    },
+    {
+      "id": "sleep-pipeline",
+      "title": "Build deterministic eight-hour sleep-video pipeline",
+      "owner": "implement_sleep_pipeline",
+      "state": "review",
+      "branch": "codex/clippers-sleep-motivation-pipeline",
+      "worktree": "/private/tmp/asistente-sleep-clippers",
+      "acceptance": [
+        "Default output duration is at least eight hours",
+        "Audio and visuals are generated locally without external samples",
+        "Rights manifest, ffprobe QA and CI-friendly short mode exist"
+      ],
+      "mergeGate": "Focused tests, technical QA and independent review pass"
+    },
+    {
+      "id": "motivation-pipeline",
+      "title": "Build original Spanish motivation Shorts pipeline",
+      "owner": "implement_motivation_pipeline",
+      "state": "review",
+      "branch": "codex/clippers-sleep-motivation-pipeline",
+      "worktree": "/private/tmp/asistente-sleep-clippers",
+      "acceptance": [
+        "Original explicit scripts only",
+        "Vertical 9:16 output is 20 to 40 seconds with readable captions",
+        "Voice, rights, dedupe and QA gates fail closed"
+      ],
+      "mergeGate": "Focused tests, editorial QA and independent review pass"
+    },
+    {
+      "id": "release-review",
+      "title": "Independent review and App QA release gate",
+      "owner": "unassigned-checker",
+      "state": "review",
+      "branch": "codex/clippers-sleep-motivation-pipeline",
+      "worktree": "/private/tmp/asistente-sleep-clippers",
+      "acceptance": [
+        "Diff and tests independently reviewed",
+        "Eight-hour pilot passes start, middle and end inspection",
+        "No publishing occurs without verified channel evidence"
+      ],
+      "mergeGate": "PR exists, focused tests pass, reviewer findings are resolved, and YouTube publishing remains blocked until a verified authorized channel is connected"
+    },
+    {
+      "id": "youtube-channel-publishing",
+      "title": "Connect verified YouTube channel before external publishing",
+      "owner": "robert",
+      "state": "blocked",
+      "branch": null,
+      "worktree": null,
+      "acceptance": [
+        "YouTube channel is verified for uploads longer than 15 minutes",
+        "Channel identity and publishing authorization are recorded in the Clippers workspace",
+        "Upload destination, title, description, thumbnail and audience settings are approved"
+      ],
+      "mergeGate": "External upload/publish may start only after this card leaves blocked"
+    }
+  ]
+}

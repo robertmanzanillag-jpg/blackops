@@ -1,0 +1,271 @@
+name: Office worker (cloud)
+
+# Runs the reviewed Agents Office executor in the cloud: no PC required. Every fifteen minutes GitHub
+# starts a clean, isolated machine; `office-worker-once` takes the exclusive PostgreSQL ownership lock
+# (never stolen), refuses to run while the PC worker still reports presence, runs the same reviewed
+# office cycle for at most 13 minutes, never claims work without its full lease inside that budget,
+# never replays uncertain or fenced work, then releases ownership and exits. It stays review-only:
+# no publication, deployment, credentials, messages or KONG changes.
+#
+# Scheduled workflows only run from the default branch, so this file must also live on `main`; it
+# executes the office source named by the repository variable OFFICE_SOURCE_REF (the production branch).
+#
+# This file is also the single automatic path for the Software Factory (`factory-once` job below),
+# gated by SOFTWARE_FACTORY_CLOUD_ENABLED. GitHub's own `schedule` event has proven unreliable for
+# this repository (it never fired), and an external cron dispatches this workflow every 15 minutes
+# without inputs, so the factory cadence is decided here by the clock: in `auto` mode (the default,
+# used by schedules and by dispatches without inputs) the office always runs and the `factory-gate`
+# job also lets the factory run when the current UTC hour is even and the minute is below 30. That is
+# two chances per two hours, so one missed external tick does not skip the factory; a second pass in
+# the same window just continues queued work or exits idle in seconds (the factory is idempotent and
+# its concurrency group serializes runs). Explicit `target=office|factory|both` dispatches bypass the
+# clock. `software-factory-cloud.yml` is kept as a manual-only fallback with no schedule.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Which worker to run: auto (default: office, plus the factory in its two-hourly window), office, factory or both"
+        required: false
+        type: choice
+        default: auto
+        options:
+          - auto
+          - office
+          - factory
+          - both
+
+permissions:
+  contents: read
+
+jobs:
+  config:
+    # Resolves non-secret settings (repository variables win over .github/office-config.env) and
+    # reports, as true/false only, whether each job's secrets exist. Jobs whose secrets are missing
+    # are skipped with a notice instead of failing every 15 minutes. No secret values reach this job.
+    if: github.repository == 'robertmanzanillag-jpg/blackops'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    outputs:
+      env: ${{ steps.cfg.outputs.env }}
+      OFFICE_SOURCE_REF: ${{ steps.cfg.outputs.OFFICE_SOURCE_REF }}
+      FACTORY_SOURCE_REF: ${{ steps.cfg.outputs.FACTORY_SOURCE_REF }}
+      ready_office: ${{ steps.cfg.outputs.ready_office }}
+      ready_factory: ${{ steps.cfg.outputs.ready_factory }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          sparse-checkout: .github
+          persist-credentials: false
+      - id: cfg
+        env:
+          VARS_JSON: ${{ toJSON(vars) }}
+          SECRET_OFFICE_DATABASE_URL: ${{ secrets.OFFICE_DATABASE_URL != '' }}
+          SECRET_OFFICE_OWNER_ID: ${{ secrets.OFFICE_OWNER_ID != '' }}
+          SECRET_OFFICE_OPENAI_API_KEY: ${{ secrets.OFFICE_OPENAI_API_KEY != '' }}
+          SECRET_FACTORY_DATABASE_URL: ${{ (secrets.FACTORY_DATABASE_URL || secrets.OFFICE_DATABASE_URL) != '' }}
+          SECRET_FACTORY_OWNER_ID: ${{ (secrets.FACTORY_OWNER_ID || secrets.OFFICE_OWNER_ID) != '' }}
+          SECRET_FACTORY_OPENAI_API_KEY: ${{ (secrets.FACTORY_OPENAI_API_KEY || secrets.OFFICE_OPENAI_API_KEY) != '' }}
+          SECRET_SOFTWARE_FACTORY_GITHUB_TOKEN: ${{ secrets.SOFTWARE_FACTORY_GITHUB_TOKEN != '' }}
+          SECRET_OPENAI_SHARED_CREDIT_CONFIG_JSON: ${{ secrets.OPENAI_SHARED_CREDIT_CONFIG_JSON != '' }}
+          SECRET_SOFTWARE_FACTORY_OPERATOR_CONFIG_JSON: ${{ secrets.SOFTWARE_FACTORY_OPERATOR_CONFIG_JSON != '' }}
+          GROUP_office: OFFICE_WORKER_CLOUD_ENABLED OFFICE_DATABASE_URL OFFICE_OWNER_ID OFFICE_OPENAI_API_KEY OPENAI_SHARED_CREDIT_CONFIG_JSON
+          GROUP_factory: SOFTWARE_FACTORY_CLOUD_ENABLED FACTORY_DATABASE_URL FACTORY_OWNER_ID FACTORY_OPENAI_API_KEY SOFTWARE_FACTORY_GITHUB_TOKEN OPENAI_SHARED_CREDIT_CONFIG_JSON SOFTWARE_FACTORY_OPERATOR_CONFIG_JSON
+        run: node .github/office-config.mjs
+
+  office-once:
+    # Never on forks; only scheduled or manual runs of this repository can see the office secrets.
+    # OFFICE_WORKER_CLOUD_ENABLED (variable, else .github/office-config.env) other than 'true' is the
+    # persistent maintenance pause; missing office secrets also skip it (see the config job).
+    # Skipped only on dispatches that ask for the factory alone; a dispatch without inputs (external
+    # cron, target=auto) still runs the office.
+    needs: config
+    if: >-
+      github.repository == 'robertmanzanillag-jpg/blackops' &&
+      needs.config.outputs.ready_office == 'true' &&
+      inputs.target != 'factory'
+    concurrency:
+      group: office-worker-cloud
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    # 13-minute run budget plus startup and bounded settlement/cleanup.
+    timeout-minutes: 25
+    steps:
+      - name: Load office configuration (variables override .github/office-config.env)
+        env:
+          OFFICE_CONFIG_ENV: ${{ needs.config.outputs.env }}
+        run: printf '%s\n' "$OFFICE_CONFIG_ENV" >> "$GITHUB_ENV"
+
+      - name: Refuse to run without a reviewed production source
+        run: |
+          # An empty ref would make actions/checkout fall back to the dispatching branch.
+          if [ -z "${OFFICE_SOURCE_REF:-}" ]; then echo "::error::OFFICE_SOURCE_REF is empty"; exit 1; fi
+
+      - name: Check out the office source in production
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.config.outputs.OFFICE_SOURCE_REF }}
+          persist-credentials: false
+
+      - name: Verify the reviewed entrypoint exists
+        run: test -f script/office-worker-once.ts && test -f server/office-worker-once.ts
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies (no lifecycle scripts; esbuild rebuilt explicitly for tsx)
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm rebuild esbuild
+
+      - name: Install private configuration outside the checkout
+        env:
+          OPENAI_SHARED_CREDIT_CONFIG_JSON: ${{ secrets.OPENAI_SHARED_CREDIT_CONFIG_JSON }}
+        run: |
+          set -euo pipefail
+          umask 077
+          dir="$RUNNER_TEMP/office-config"
+          mkdir -p "$dir"
+          # Only needed when role academy, capability training or shared credits are enabled.
+          if [ -n "$OPENAI_SHARED_CREDIT_CONFIG_JSON" ]; then
+            printf '%s' "$OPENAI_SHARED_CREDIT_CONFIG_JSON" > "$dir/shared-credit.json"
+            node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$dir/shared-credit.json"
+            echo "OFFICE_SHARED_CREDIT_FILE=$dir/shared-credit.json" >> "$GITHUB_ENV"
+          fi
+
+      - name: Run the office executor once (bounded)
+        env:
+          NODE_ENV: production
+          # Must be a direct (session) PostgreSQL URL: the exclusive ownership lock is a session advisory lock.
+          DATABASE_URL: ${{ secrets.OFFICE_DATABASE_URL }}
+          DEFAULT_USER_ID: ${{ secrets.OFFICE_OWNER_ID }}
+          OPENAI_API_KEY: ${{ secrets.OFFICE_OPENAI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.OFFICE_GITHUB_TOKEN }}
+          # Read-only KONG operations/city evidence for the council's KONG rounds (same token as the web app).
+          KONG_OFFICE_READ_TOKEN: ${{ secrets.KONG_OFFICE_READ_TOKEN }}
+          # OFFICE_* settings (model, budgets, feature flags, self-heal - off by default) come from the
+          # "Load office configuration" step: repository variables, else .github/office-config.env.
+        run: |
+          set -euo pipefail
+          export OPENAI_SHARED_CREDITS_REQUIRED="${OFFICE_SHARED_CREDITS_REQUIRED:-false}"
+          if [ -n "${OFFICE_SHARED_CREDIT_FILE:-}" ]; then export OPENAI_SHARED_CREDIT_CONFIG="$OFFICE_SHARED_CREDIT_FILE"; fi
+          # 15 minutes: the worker's own 13-minute budget, then SIGTERM for bounded settlement.
+          timeout --signal=TERM --kill-after=3m 15m node --import tsx script/office-worker-once.ts
+
+      - name: Remove private configuration
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/office-config"
+
+  factory-gate:
+    # Decides whether this run includes the factory. Never on forks; skipped (and so is the factory)
+    # unless SOFTWARE_FACTORY_CLOUD_ENABLED resolves to exactly 'true' and the factory secrets exist.
+    needs: config
+    if: >-
+      github.repository == 'robertmanzanillag-jpg/blackops' &&
+      needs.config.outputs.ready_factory == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+    steps:
+      - id: gate
+        env:
+          # Empty on schedule events; 'auto' on dispatches without inputs.
+          TARGET: ${{ inputs.target || 'auto' }}
+        run: |
+          set -euo pipefail
+          hour=$((10#$(date -u +%H))); minute=$((10#$(date -u +%M)))
+          case "$TARGET" in
+            factory|both) run=true ;;
+            auto) if [ $((hour % 2)) -eq 0 ] && [ "$minute" -lt 30 ]; then run=true; else run=false; fi ;;
+            *) run=false ;;
+          esac
+          echo "target=$TARGET utc=$(date -u +%H:%M) factory=$run"
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
+  factory-once:
+    # Setting SOFTWARE_FACTORY_CLOUD_ENABLED to anything but 'true' keeps the factory paused (the gate
+    # is skipped). Runs on dispatches with target factory|both, or in the two-hourly window (auto).
+    needs: [config, factory-gate]
+    if: needs.factory-gate.outputs.run == 'true'
+    concurrency:
+      group: software-factory-cloud
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    # 30-minute run budget plus startup and bounded settlement/cleanup.
+    timeout-minutes: 45
+    steps:
+      - name: Load office configuration (variables override .github/office-config.env)
+        env:
+          OFFICE_CONFIG_ENV: ${{ needs.config.outputs.env }}
+        run: printf '%s\n' "$OFFICE_CONFIG_ENV" >> "$GITHUB_ENV"
+
+      - name: Refuse to run without a reviewed production source
+        env:
+          SOURCE_REF: ${{ needs.config.outputs.FACTORY_SOURCE_REF || needs.config.outputs.OFFICE_SOURCE_REF }}
+        run: |
+          if [ -z "$SOURCE_REF" ]; then echo "::error::FACTORY_SOURCE_REF and OFFICE_SOURCE_REF are empty"; exit 1; fi
+
+      - name: Check out the factory source in production
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.config.outputs.FACTORY_SOURCE_REF || needs.config.outputs.OFFICE_SOURCE_REF }}
+          persist-credentials: false
+
+      - name: Verify the reviewed entrypoint exists
+        run: test -f script/software-factory-once.ts
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies (no lifecycle scripts; esbuild rebuilt explicitly for tsx)
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm rebuild esbuild
+
+      - name: Install private configuration outside the checkout
+        env:
+          OPENAI_SHARED_CREDIT_CONFIG_JSON: ${{ secrets.OPENAI_SHARED_CREDIT_CONFIG_JSON }}
+          SOFTWARE_FACTORY_OPERATOR_CONFIG_JSON: ${{ secrets.SOFTWARE_FACTORY_OPERATOR_CONFIG_JSON }}
+        run: |
+          set -euo pipefail
+          umask 077
+          dir="$RUNNER_TEMP/factory-config"
+          mkdir -p "$dir"
+          test -n "$OPENAI_SHARED_CREDIT_CONFIG_JSON" && test -n "$SOFTWARE_FACTORY_OPERATOR_CONFIG_JSON"
+          printf '%s' "$OPENAI_SHARED_CREDIT_CONFIG_JSON" > "$dir/shared-credit.json"
+          printf '%s' "$SOFTWARE_FACTORY_OPERATOR_CONFIG_JSON" > "$dir/operator.json"
+          node -e 'for (const f of process.argv.slice(1)) JSON.parse(require("fs").readFileSync(f, "utf8"))' "$dir/shared-credit.json" "$dir/operator.json"
+          echo "FACTORY_CONFIG_DIR=$dir" >> "$GITHUB_ENV"
+
+      - name: Run the factory once (exits when idle)
+        env:
+          NODE_ENV: production
+          SOFTWARE_FACTORY_ENABLED: "true"
+          SOFTWARE_FACTORY_STORAGE_BACKEND: postgres
+          AGENT_COUNCIL_STORAGE: postgres
+          OPENAI_SHARED_CREDITS_REQUIRED: "true"
+          # Factory-specific secrets win; otherwise reuse the office ones (same database, owner and ledger).
+          DATABASE_URL: ${{ secrets.FACTORY_DATABASE_URL || secrets.OFFICE_DATABASE_URL }}
+          DEFAULT_USER_ID: ${{ secrets.FACTORY_OWNER_ID || secrets.OFFICE_OWNER_ID }}
+          SOFTWARE_FACTORY_OWNER_ID: ${{ secrets.FACTORY_OWNER_ID || secrets.OFFICE_OWNER_ID }}
+          OPENAI_API_KEY: ${{ secrets.FACTORY_OPENAI_API_KEY || secrets.OFFICE_OPENAI_API_KEY }}
+          SOFTWARE_FACTORY_GITHUB_TOKEN: ${{ secrets.SOFTWARE_FACTORY_GITHUB_TOKEN }}
+          # SOFTWARE_FACTORY_OFFICE_REVIEW_ENABLED / _CAREERS_ENABLED and OFFICE_SELF_HEAL_* (off by default)
+          # come from the "Load office configuration" step; only the exact string 'true' enables them.
+        run: |
+          set -euo pipefail
+          export OPENAI_SHARED_CREDIT_CONFIG="$FACTORY_CONFIG_DIR/shared-credit.json"
+          export SOFTWARE_FACTORY_OPERATOR_CONFIG="$FACTORY_CONFIG_DIR/operator.json"
+          # 32 minutes: the worker's own 30-minute budget, then SIGTERM for bounded settlement.
+          timeout --signal=TERM --kill-after=5m 32m node --import tsx script/software-factory-once.ts
+
+      - name: Remove private configuration
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/factory-config"
