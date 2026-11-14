@@ -18,7 +18,9 @@ Secrets (the same reviewed values the factory already uses; never commit them)
 - `FACTORY_OWNER_ID` — owner user id (used for `DEFAULT_USER_ID` and `SOFTWARE_FACTORY_OWNER_ID`)
 - `FACTORY_OPENAI_API_KEY`
 - `SOFTWARE_FACTORY_GITHUB_TOKEN`
-- `OPENAI_SHARED_CREDIT_CONFIG_JSON` — contents of the shared credit config file
+- `OPENAI_SHARED_CREDIT_CONFIG_JSON` — optional: contents of the shared credit config file. When empty, the
+  workflows derive it read-only from the existing ledger in the database
+  (`script/shared-credit-config-from-db.ts`, pricing and optional scope from `.github/office-config.env`).
 - `SOFTWARE_FACTORY_OPERATOR_CONFIG_JSON` — contents of the reviewed operator config file
 
 Spending stays inside the existing shared credit ledger and the factory budget ($100/month).
