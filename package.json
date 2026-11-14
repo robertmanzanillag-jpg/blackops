@@ -224,7 +224,7 @@
     "postcss": "^8.5.26",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.20.5",
-    "typescript": "5.6.3",
+    "typescript": "7.0.2",
     "vite": "^7.1.9"
   },
   "optionalDependencies": {
