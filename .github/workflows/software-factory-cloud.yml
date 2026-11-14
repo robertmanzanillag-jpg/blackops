@@ -48,7 +48,8 @@ jobs:
           SECRET_FACTORY_OWNER_ID: ${{ (secrets.FACTORY_OWNER_ID || secrets.OFFICE_OWNER_ID) != '' }}
           SECRET_FACTORY_OPENAI_API_KEY: ${{ (secrets.FACTORY_OPENAI_API_KEY || secrets.OFFICE_OPENAI_API_KEY) != '' }}
           SECRET_SOFTWARE_FACTORY_GITHUB_TOKEN: ${{ secrets.SOFTWARE_FACTORY_GITHUB_TOKEN != '' }}
-          SECRET_OPENAI_SHARED_CREDIT_CONFIG_JSON: ${{ secrets.OPENAI_SHARED_CREDIT_CONFIG_JSON != '' }}
+          # Satisfied by the secret, or derived read-only from the ledger in the database (see the job).
+          SECRET_OPENAI_SHARED_CREDIT_CONFIG_JSON: ${{ (secrets.OPENAI_SHARED_CREDIT_CONFIG_JSON || secrets.FACTORY_DATABASE_URL || secrets.OFFICE_DATABASE_URL) != '' }}
           SECRET_SOFTWARE_FACTORY_OPERATOR_CONFIG_JSON: ${{ secrets.SOFTWARE_FACTORY_OPERATOR_CONFIG_JSON != '' }}
           GROUP_factory: SOFTWARE_FACTORY_CLOUD_ENABLED FACTORY_DATABASE_URL FACTORY_OWNER_ID FACTORY_OPENAI_API_KEY SOFTWARE_FACTORY_GITHUB_TOKEN OPENAI_SHARED_CREDIT_CONFIG_JSON SOFTWARE_FACTORY_OPERATOR_CONFIG_JSON
         run: node .github/office-config.mjs
@@ -95,13 +96,21 @@ jobs:
         env:
           OPENAI_SHARED_CREDIT_CONFIG_JSON: ${{ secrets.OPENAI_SHARED_CREDIT_CONFIG_JSON }}
           SOFTWARE_FACTORY_OPERATOR_CONFIG_JSON: ${{ secrets.SOFTWARE_FACTORY_OPERATOR_CONFIG_JSON }}
+          # Only used to derive the credit configuration when its secret is empty (read-only); same
+          # database as the factory run below, which holds the shared ledger.
+          DATABASE_URL: ${{ secrets.FACTORY_DATABASE_URL || secrets.OFFICE_DATABASE_URL }}
         run: |
           set -euo pipefail
           umask 077
           dir="$RUNNER_TEMP/factory-config"
           mkdir -p "$dir"
-          test -n "$OPENAI_SHARED_CREDIT_CONFIG_JSON" && test -n "$SOFTWARE_FACTORY_OPERATOR_CONFIG_JSON"
-          printf '%s' "$OPENAI_SHARED_CREDIT_CONFIG_JSON" > "$dir/shared-credit.json"
+          test -n "$SOFTWARE_FACTORY_OPERATOR_CONFIG_JSON"
+          if [ -n "$OPENAI_SHARED_CREDIT_CONFIG_JSON" ]; then
+            printf '%s' "$OPENAI_SHARED_CREDIT_CONFIG_JSON" > "$dir/shared-credit.json"
+          else
+            # Derived from the existing ledger; the script prints only a static status line or code.
+            node --import tsx script/shared-credit-config-from-db.ts "--out=$dir/shared-credit.json"
+          fi
           printf '%s' "$SOFTWARE_FACTORY_OPERATOR_CONFIG_JSON" > "$dir/operator.json"
           node -e 'for (const f of process.argv.slice(1)) JSON.parse(require("fs").readFileSync(f, "utf8"))' "$dir/shared-credit.json" "$dir/operator.json"
           echo "FACTORY_CONFIG_DIR=$dir" >> "$GITHUB_ENV"

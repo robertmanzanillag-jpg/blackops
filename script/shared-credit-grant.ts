@@ -12,7 +12,7 @@ import { getCouncilStore } from "../server/agent-council-store";
 import { createSharedCreditTransaction, provisionSharedCreditStorage } from "../server/shared-openai-credit-store";
 import { createSharedOpenAiCreditLedger, type SharedCreditState, type VerifiedCreditGrant } from "../server/shared-openai-credit-ledger";
 
-const identifier = /^[A-Za-z0-9_.:-]{1,200}$/;
+export const identifier = /^[A-Za-z0-9_.:-]{1,200}$/;
 const MICRO = 1_000_000;
 
 export function parseArgs(argv: string[]) {
@@ -85,7 +85,7 @@ export function summarize(state: SharedCreditState) {
   };
 }
 
-const ledgerOwner = (scope: string) => JSON.stringify(["shared-openai-credit-ledger-v1", scope]);
+export const ledgerOwner = (scope: string) => JSON.stringify(["shared-openai-credit-ledger-v1", scope]);
 
 async function readState(scope: string): Promise<SharedCreditState | null> {
   const raw = await (await getCouncilStore()).read(ledgerOwner(scope));
