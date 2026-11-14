@@ -12,7 +12,7 @@ const now = new Date("2026-11-13T12:00:00Z");
 const grant = (scope: string, expiresAt = "2026-11-30T00:00:00Z") => ({ id: `grant-${scope}`, accountScope: scope, availableMicroUsd: 100_000_000,
   observedAt: "2026-11-07T00:00:00Z", expiresAt, verificationEvidenceId: "billing-ui-evidence" });
 const ledgerRow = (scope: string, expiresAt?: string) => ({ ownerKey: councilOwnerKey(ledgerOwner(scope)), grant: grant(scope, expiresAt) });
-const env = { DATABASE_URL: "postgres://user:topsecretpass@db.internal:5432/prod", OFFICE_OPENAI_MODEL: "gpt-6.1-sol",
+const env = { DATABASE_URL: "postgres://user:sandboxsecret@db.internal:5432/prod", OFFICE_OPENAI_MODEL: "gpt-6.1-sol",
   OFFICE_SHARED_CREDIT_INPUT_USD_PER_MILLION: "2", OFFICE_SHARED_CREDIT_OUTPUT_USD_PER_MILLION: "10",
   OFFICE_SHARED_CREDIT_PRICING_VALID_UNTIL: "2026-12-31T00:00:00Z" };
 
