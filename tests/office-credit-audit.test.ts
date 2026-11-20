@@ -181,7 +181,7 @@ test("manual action receives no provider key and retains reviewed-source and mig
   assert.match(step, /if: inputs.action == 'office-credit-audit'/);
   assert.match(step, /secrets.OPENAI_SHARED_CREDIT_CONFIG_JSON/);
   assert.doesNotMatch(step, /OPENAI_API_KEY|GITHUB_TOKEN|FACTORY_DATABASE_URL|--apply|loadSharedCreditRuntime/);
-  assert.match(workflow, /ref: \$\{\{ vars.OFFICE_SOURCE_REF \}\}/);
+  assert.match(workflow, /ref: \$\{\{ needs.config.outputs.OFFICE_SOURCE_REF \}\}/);
   assert.match(workflow, /inputs.confirm != 'APLICAR'/);
   assert.match(workflow, /permissions:\n  contents: read/);
 });
