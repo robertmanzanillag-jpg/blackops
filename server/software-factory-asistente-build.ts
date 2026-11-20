@@ -5,7 +5,7 @@ import {createGitHubFactoryChecks} from "./software-factory-actions";
 import {createGitHubFactoryCandidatePublisher} from "./software-factory-github-publisher";
 import { createOpenAiFactoryPatchGenerator } from "./software-factory-openai-builder";
 import { createOpenAiFactoryTextProvider } from "./software-factory-openai";
-import { executeWithinSharedCredits } from "./shared-openai-credit-execution";
+import { factoryModelProviderArtifact, runFactoryModelCall, type FactoryModelRoute } from "./software-factory-model-routes";
 import type { createSharedOpenAiCreditLedger } from "./shared-openai-credit-ledger";
 import type { FactoryActionsProfile } from "./software-factory-actions";
 import type { FactoryPipelineDependencies } from "./software-factory-pipeline";
@@ -19,6 +19,8 @@ export function createAsistenteFactoryBuild(options: {
   ledger: ReturnType<typeof createSharedOpenAiCreditLedger>;
   githubRequest: (url: string, init: RequestInit) => Promise<Response>;
   model: Parameters<typeof createOpenAiFactoryTextProvider>[0];
+  /** Ordered provider routes (e.g. OpenAI then Claude). Default: [ledger+model]. */
+  routes?: readonly FactoryModelRoute[];
   baseBranch: FactoryAsistenteBaseBranch;
   /** Allowed roots; each job's persisted finding.sourcePaths must fit inside. */
   writeRoots?: readonly string[];
@@ -38,7 +40,8 @@ export function createAsistenteFactoryBuild(options: {
   const repository = FACTORY_ASISTENTE_REPOSITORY;
   const clientFor=(signal:AbortSignal,paths:readonly string[])=>createFactoryAsistenteGitHubClient({request:async(url,init)=>{signal.throwIfAborted();return options.githubRequest(url,{...init,signal:init.signal?AbortSignal.any([signal,init.signal]):signal});},baseBranch:options.baseBranch,writePaths:paths,allowDispatch:options.checks.trigger==="workflow_dispatch"});
   const model = { ...options.model };
-  const ledger = options.ledger, maxOutputTokens = options.maxOutputTokens;
+  const maxOutputTokens = options.maxOutputTokens;
+  const routes: readonly FactoryModelRoute[] = options.routes?.length ? [...options.routes] : [{ provider: "openai", ledger: options.ledger, model }];
   const profile = { baseBranch: options.baseBranch, checks: { ...options.checks } };
   return async (project, state, context) => {
     if (project.repo !== repository || state.projectId !== project.id || !state.rootJobId || !Number.isSafeInteger(state.repairAttempts) || state.repairAttempts < 0) {
@@ -61,21 +64,14 @@ export function createAsistenteFactoryBuild(options: {
       return createFactoryAsistenteGitHubSourceExporter(clientFor(signal,paths),{sourcePaths:paths,signal})(repo,sha,destination);
     };
     const key = `factory:${createHash("sha256").update(JSON.stringify([project.id, state.rootJobId, state.repairAttempts])).digest("hex")}`;
-    const generate = createOpenAiFactoryTextProvider({ ...model, request: async (url, init) => {
-      const remainingMs = await ledger.executionWindow(key);
-      const deadline = AbortSignal.timeout(Math.floor(remainingMs));
-      const signal = init.signal ? AbortSignal.any([init.signal, deadline]) : deadline;
-      signal.throwIfAborted();
-      return model.request(url, { ...init, signal });
-    } });
+    let used: { provider: string; model: string } | undefined;
     const generatePatch = createOpenAiFactoryPatchGenerator({ patchMode:"exactSourceEdits", sourcePaths: { [repository]: paths }, maxOutputTokens,
       generateText: async input => {
-        const requestSha256 = createHash("sha256").update(JSON.stringify([model.model, input.instructions, input.text, input.maxOutputTokens, model.reasoningEffort ?? null])).digest("hex");
-        return executeWithinSharedCredits(ledger, { key, consumer: "factory", requestSha256, maximumMicroUsd: input.maxCostCents * 10000 }, async () => {
-          const result = await generate(input);
-          if (result.status === "unknown") throw Error("FACTORY_MODEL_OUTCOME_UNKNOWN");
-          return { value: result, actualMicroUsd: result.costCents * 10000, evidenceId: `factory-model:${requestSha256}:${createHash("sha256").update(key).digest("hex").slice(0, 16)}` };
-        });
+        const call = await runFactoryModelCall(routes, { key, input, unknownError: "FACTORY_MODEL_OUTCOME_UNKNOWN",
+          requestSha256: m => createHash("sha256").update(JSON.stringify([m.model, input.instructions, input.text, input.maxOutputTokens, ("reasoningEffort" in m ? m.reasoningEffort : undefined) ?? null])).digest("hex"),
+          evidenceId: requestSha256 => `factory-model:${requestSha256}:${createHash("sha256").update(key).digest("hex").slice(0, 16)}` });
+        used = { provider: call.provider, model: call.model };
+        return call.result;
       },
     });
     // Scenario is code-owned and persisted at discovery: automatic orders are
@@ -92,6 +88,10 @@ export function createAsistenteFactoryBuild(options: {
         if(ref.data.ref!==`refs/heads/${profile.baseBranch}` || ref.data.object.sha!==baseSha)return {allowed:false};
         return {allowed:await checks.preflight(project.repo,baseSha,context.signal)};
       },publicationCostCents:0,now:options.now });
-    return build(project, state, context);
+    const built = await build(project, state, context);
+    // With provider routes configured, record which provider produced the patch
+    // in the persisted test evidence (single-provider evidence is unchanged).
+    if (used && options.routes?.length && "tests" in built && built.tests) built.tests = { ...built.tests, artifactIds: [...built.tests.artifactIds, factoryModelProviderArtifact(used)] };
+    return built;
   };
 }

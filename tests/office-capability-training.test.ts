@@ -5,6 +5,8 @@ import {createCapabilityTrainer,parseCapabilityTraining,capabilityTrainingSummar
 import {auditSavedRole} from "../server/office-role-audits";
 import {sourceDigest as digest,PENDING_OFFICE_ROLES,type PendingOfficeRole} from "../server/office-role-snapshots";
 import {parseRoleWork,type RoleWorkJob,type RoleWorkState} from "../server/office-role-work";
+import {buildOfficeVerification} from "../server/office-verification";
+import {emptyCompanyState} from "../shared/agent-company";
 const NOW=Date.parse("2026-11-07T01:00:00Z"),owner="owner";
 function realJob(at:number):RoleWorkJob{
  const sourceBody={version:1 as const,role:"control" as const,ownerKey:digest(owner),observedAt:new Date(at).toISOString(),total:1,rows:[{id:"permission1",scope:"publish",level:"autonomous",risk:"high",enabled:true}]},source={...sourceBody,sourceDigest:digest(sourceBody)};
@@ -30,11 +32,23 @@ function fixture(mode:"improve"|"tie"|"costfail"|"late"|"regress"|"expensive"|"c
  return {trainer,seedWork:(value:RoleWorkState)=>{work=parseRoleWork(value,owner);},setBusy:(v:boolean)=>{busy=v;},seed:(s:CapabilityTrainingState)=>{state=parseCapabilityTraining(s,owner);},state:()=>state,calls:()=>calls,setTime:(v:number)=>{clock=v;},generations,addJob:(at:number)=>{work={...work,jobs:[...work.jobs,realJob(at)]};}};
 }
 test("real incumbent errors generate bounded lessons; separate priced holdouts apply only narrow policy on next real task",async()=>{
+ const report=(s:CapabilityTrainingState,at:number)=>buildOfficeVerification({company:{...emptyCompanyState(),careers:{control:{generation:1} as any}},officeExecution:{capabilityTraining:s}} as any,owner,at,{});
  const f=fixture();await Promise.all([f.trainer.tick(),f.trainer.tick()]);assert.equal(f.calls(),1);let state=f.state();assert.equal(state.runs[0].kind,"production");assert.equal(state.policies.length,2);assert.deepEqual(state.policies.find(p=>p.status==="candidate")!.lessons,["invalid_output"]);
+ assert.equal(report(state,NOW+100).mechanisms.evals.verifiedImprovements,0);
  for(let day=1;day<=3;day++){f.setTime(NOW+day*86400000);await f.trainer.tick();}
  state=f.state();assert.equal(state.runs.filter(r=>r.kind==="holdout").length,3);assert.equal(state.policies.find(p=>p.parentVersion!==null)!.status,"probation");
+ assert.equal(report(state,NOW+3*86400000+100).mechanisms.evals.qualifiedPolicies,1);
+ assert.equal(report(state,NOW+3*86400000+100).mechanisms.evals.verifiedImprovements,0);
  const next=NOW+4*86400000;f.setTime(next);f.addJob(next);await f.trainer.tick();state=f.state();const active=state.policies.find(p=>p.parentVersion!==null)!;assert.equal(active.status,"active");assert.equal(state.runs.at(-1)!.policyVersion,active.version);assert.equal(state.runs.at(-1)!.kind,"production");assert.equal(state.runs.at(-1)!.generation,1);
  assert.ok(capabilityTrainingSummary(state,owner).every(s=>s.fullRolePromotion===false));assert.doesNotThrow(()=>parseCapabilityTraining(reorder(state),owner));
+ const verified=report(state,next+100);assert.equal(verified.mechanisms.evals.verifiedImprovements,1);assert.equal(verified.mechanisms.evals.comparisons[0].passedPairs,3);assert.equal(verified.mechanisms.evals.comparisons[0].firstVerifiedRunId,state.runs.at(-1)!.id);
+ assert.equal(verified.evidenceStatus,"recent");assert.equal(report(state,next+2*86400000).evidenceStatus,"stale");
+ const future=structuredClone(state);for(const pair of future.runs.filter(run=>run.kind==="holdout")){const shift=7*86400000;pair.startedAt=new Date(Date.parse(pair.startedAt)+shift).toISOString();pair.expiresAt=new Date(Date.parse(pair.expiresAt)+shift).toISOString();for(const measured of [pair.baseline!,pair.trained!])measured.result.completedAt=new Date(Date.parse(measured.result.completedAt)+shift).toISOString();const {artifactId,...body}=pair;pair.artifactId=digest(body);}
+ const withoutVisibleExams=report(future,next+100);assert.equal(withoutVisibleExams.mechanisms.evals.comparisons[0].passedPairs,0);assert.equal(withoutVisibleExams.mechanisms.evals.qualifiedPolicies,0);assert.equal(withoutVisibleExams.mechanisms.evals.verifiedImprovements,0,"future comparisons cannot qualify an earlier successful production record");
+ const pending=structuredClone(state),inflight={...structuredClone(state.runs.at(-1)!),id:randomUUID(),fence:randomUUID(),status:"running" as const};delete inflight.trained;delete inflight.artifactId;pending.runs.push(inflight);
+ assert.equal(report(pending,next+100).mechanisms.evals.verifiedImprovements,1,"a busy admission lane cannot erase verified improvement history");
+ assert.equal(report(pending,next+400000).mechanisms.evals.unknownRuns,1,"an expired lease is unresolved even before the next worker tick");
+ assert.equal(report(state,next-100).mechanisms.evals.verifiedImprovements,0);
  const corrupt=structuredClone(state);corrupt.runs[0].trained!.cost.usd=999;assert.throws(()=>parseCapabilityTraining(corrupt,owner));
 });
 test("equal held-out quality is rejected without policy activation",async()=>{
@@ -97,6 +111,11 @@ function legacyState(raw:CapabilityTrainingState):CapabilityTrainingState{
  copy.policies=copy.policies.map(p=>{const {version,status,promptVersion,origin,...body}=p;body.parentVersion=body.parentVersion?versions.get(body.parentVersion)!:null;const legacyVersion=digest({capability:"source-triage-v1",...body});versions.set(version,legacyVersion);return {...body,version:legacyVersion,status};});
  copy.runs=copy.runs.map(r=>{delete r.promptVersion;r.policyVersion=versions.get(r.policyVersion)!;if(r.baselineVersion)r.baselineVersion=versions.get(r.baselineVersion)!;if(r.cancellation){const {artifactId,cancellation,...prior}=r;r.cancellation.priorRunSha256=digest({...prior,status:"unknown"});}if(r.artifactId){const {artifactId,...body}=r;r.artifactId=digest(body);}return r;});return parseCapabilityTraining(copy,owner);
 }
+test("verification exposes unresolved legacy and old-holder work that blocks the shared admission lane",async()=>{
+ const f=fixture("late");await f.trainer.tick();const old=legacyState(f.state());
+ const result=buildOfficeVerification({company:{...emptyCompanyState(),careers:{control:{generation:2} as any}},officeExecution:{capabilityTraining:old}} as any,owner,NOW+86400000,{});
+ assert.equal(result.mechanisms.evals.totalRuns,1);assert.equal(result.mechanisms.evals.unknownRuns,1);assert.equal(result.mechanisms.evals.verifiedImprovements,0);assert.match(result.limitations.join(" "),/versiones o generaciones anteriores/);
+});
 test("legacy instruction errors remain byte-stable history while corrected schema gets a fresh independent baseline",async()=>{
  const old=fixture();await old.trainer.tick();const legacy=legacyState(old.state()),before=JSON.stringify(legacy);assert.deepEqual(parseCapabilityTraining(legacy,owner),legacy);assert.match(capabilityRunSummary(legacy.runs[0]).promptLabel,/ambigüedad/);assert.equal(capabilityRunSummary(legacy.runs[0]).quality,0);
  const corrected=fixture("schema");corrected.seed(legacy);corrected.seedWork({version:1,ownerKey:digest(owner),jobs:[legacy.runs[0].sourceJob as RoleWorkJob]});await corrected.trainer.tick();const state=corrected.state();assert.equal(corrected.calls(),1);assert.equal(state.runs.at(-1)!.kind,"production");assert.equal(state.runs.at(-1)!.promptVersion,CAPABILITY_PROMPT_VERSION);assert.equal(capabilityRunSummary(state.runs.at(-1)!).promptLabel,"Instrucción corregida");assert.equal(capabilityRunSummary(state.runs.at(-1)!).quality,100);assert.equal(state.runs.at(-1)!.task.id,legacy.runs[0].task.id);assert.equal(state.policies.at(-1)!.origin,"instruction_correction");assert.equal(state.policies.at(-1)!.parentVersion,null);assert.equal(state.policies.filter(p=>p.promptVersion===CAPABILITY_PROMPT_VERSION&&p.status==="candidate").length,0);
@@ -127,4 +146,27 @@ test("historically qualified legacy policies stay historical and cannot control 
 test("a measured partial pair cannot be zero-call cancelled or discounted",async()=>{
  const f=fixture();await f.trainer.tick();f.setTime(NOW+86400000);await f.trainer.tick();const partial=structuredClone(f.state()),run=partial.runs.at(-1)!;run.status="unknown";delete run.trained;delete run.artifactId;f.seed(partial);let verified=false;
  await assert.rejects(()=>prepareCapabilityCancellation({raw:partial,owner,runId:run.id,fence:run.fence,operatorAuditId:"not-zero",now:NOW+86400100,verify:async()=>{verified=true;throw Error("must not verify a paid phase as absent");}}));assert.equal(verified,false);f.addJob(NOW+86400000);await f.trainer.tick();assert.equal(f.calls(),3);assert.equal(f.state().runs.length,2);
+});
+
+test("paused commercial source and candidate queues reserve no model calls and survive resumption",async()=>{
+ const previous=process.env.CEO_PAUSED_DOMAINS;delete process.env.CEO_PAUSED_DOMAINS;
+ try{
+  const f=fixture();f.generations.revenue=1;f.generations.dropshipping=1;
+  const job=(role:PendingOfficeRole):RoleWorkJob=>{const audit=auditSavedRole(role,undefined,owner,NOW),value:RoleWorkJob={id:randomUUID(),fence:randomUUID(),role,generation:1,slot:new Date(NOW).toISOString().slice(0,10),startedAt:new Date(NOW).toISOString(),expiresAt:new Date(NOW+60000).toISOString(),completedAt:new Date(NOW).toISOString(),status:"blocked",audit};value.artifactId=digest({id:value.id,role,generation:1,fence:value.fence,audit});return value;};
+  f.seedWork({version:1,ownerKey:digest(owner),jobs:[job("revenue"),job("dropshipping")]});
+  await f.trainer.tick();assert.equal(f.calls(),1);const firstRole=f.state().runs[0].role;assert.ok(f.state().policies.some(p=>p.role===firstRole&&p.status==="candidate"));
+  const history=structuredClone(f.state());process.env.CEO_PAUSED_DOMAINS="websites,dropshipping";f.setTime(NOW+86400000);
+  await f.trainer.tick();await f.trainer.tick();assert.equal(f.calls(),1);assert.deepEqual(f.state(),history);
+  process.env.CEO_PAUSED_DOMAINS="";await f.trainer.tick();assert.equal(f.calls(),2);assert.notEqual(f.state().runs.at(-1)!.role,firstRole);
+  assert.deepEqual(f.state().runs.slice(0,1),history.runs);
+ }finally{if(previous===undefined)delete process.env.CEO_PAUSED_DOMAINS;else process.env.CEO_PAUSED_DOMAINS=previous;}
+});
+
+test("the daily capability limit accepts up to 56 calls and rejects more", async () => {
+  const { createCapabilityTrainer, OFFICE_CAPABILITY_MAX_CALLS_PER_DAY_LIMIT } = await import("../server/office-capability-training");
+  assert.equal(OFFICE_CAPABILITY_MAX_CALLS_PER_DAY_LIMIT, 56);
+  const base = { owner: "owner", loadWork: async () => ({}) as any, transact: async () => undefined } as any;
+  assert.doesNotThrow(() => createCapabilityTrainer({ ...base, maxCallsPerDay: 56 }));
+  assert.throws(() => createCapabilityTrainer({ ...base, maxCallsPerDay: 57 }), /CAPABILITY_EXISTING_DAILY_LIMIT_REQUIRED/);
+  assert.throws(() => createCapabilityTrainer({ ...base, maxCallsPerDay: 0 }), /CAPABILITY_EXISTING_DAILY_LIMIT_REQUIRED/);
 });

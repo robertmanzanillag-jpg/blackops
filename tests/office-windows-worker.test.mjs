@@ -50,7 +50,8 @@ test('role work requires explicit bounded academy and shared credit configuratio
  assert.equal(safeWorkerEnvironment(parseWorkerConfig(raw),{OFFICE_ROLE_WORK_ENABLED:'true'}).OFFICE_ROLE_WORK_ENABLED,undefined);
  const training=raw+`\nOFFICE_ROLE_WORK_ENABLED=true\nOPENAI_SHARED_CREDITS_REQUIRED=true\nOPENAI_SHARED_CREDIT_CONFIG=${credit}\nOFFICE_CAPABILITY_TRAINING_ENABLED=true\nOFFICE_CAPABILITY_MAX_CALLS_PER_DAY=14`;
  assert.equal(parseWorkerConfig(training).OFFICE_CAPABILITY_MAX_CALLS_PER_DAY,'14');
- for(const invalid of [training.replace('PER_DAY=14','PER_DAY=29'),training.replace('WORK_ENABLED=true','WORK_ENABLED=false'),training.replace('CREDITS_REQUIRED=true','CREDITS_REQUIRED=false')])assert.throws(()=>parseWorkerConfig(invalid));
+ assert.equal(parseWorkerConfig(training.replace('PER_DAY=14','PER_DAY=56')).OFFICE_CAPABILITY_MAX_CALLS_PER_DAY,'56');
+ for(const invalid of [training.replace('PER_DAY=14','PER_DAY=57'),training.replace('WORK_ENABLED=true','WORK_ENABLED=false'),training.replace('CREDITS_REQUIRED=true','CREDITS_REQUIRED=false')])assert.throws(()=>parseWorkerConfig(invalid));
 });
 test('real paths reject inside-repository config and fallback env files', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(),'office-windows-test-'));

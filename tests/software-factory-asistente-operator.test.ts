@@ -464,3 +464,41 @@ test("operator config accepts the production integration base branch and rejects
     const operator = createAsistenteOperatorComposition({ ...f.config, baseBranch: "claude/integration-20261111" }, f.deps);
     validateFactoryWorkerOptions(await operator.createFactoryWorkerOptions());
 });
+test("admission receipts survive provider switches: no duplicate admission across OpenAI and Claude ledgers", async () => {
+    const f = await fixture();
+    const first = await createAsistenteOperatorComposition(f.config, f.deps).admitWithinCredits(owner, f.input);
+    const { createAnthropicFactoryLedger, readAnthropicFactoryReservation } = await import("../server/software-factory-anthropic-ledger");
+    const rows = new Map<string, string>(), claudeStore = { read: async (k: string) => rows.get(k) ?? null, transact: async (k: string, fn: (raw: string | null) => Promise<string>) => { const n = await fn(rows.get(k) ?? null); rows.set(k, n); return n; } };
+    const claudeLedger = await createAnthropicFactoryLedger({ store: claudeStore, now: () => at, capMicroUsd: 50_000_000 });
+    const claudeCredits = { ledger: claudeLedger, pricing: { model: "claude-opus-5-5", inputNanoUsdPerToken: 4000, outputNanoUsdPerToken: 20000, validUntil: "2027-05-19T00:00:00.000Z" } };
+    // Claude-primary run: the OpenAI receipt returns the same job, nothing re-enqueued or reserved.
+    const switched = createAsistenteOperatorComposition(f.config, { ...f.deps, credits: claudeCredits, provider: "anthropic", priorLedgers: [f.ledger] });
+    assert.deepEqual(await switched.admitWithinCredits(owner, f.input), first);
+    assert.equal(f.calls(), 1);
+    assert.equal((await claudeLedger.status()).reservedMicroUsd, 0);
+    // A Claude-ledger admission hold (any month) blocks an OpenAI-primary re-admission.
+    const g = await fixture();
+    const key = `factory-admission:${createHash("sha256").update(JSON.stringify([owner, g.input.key])).digest("hex")}`;
+    await claudeLedger.reserve({ key, consumer: "factory", requestSha256: "d".repeat(64), maximumMicroUsd: 1 });
+    const history = [async (k: string) => readAnthropicFactoryReservation(claudeStore, k)];
+    await assert.rejects(createAsistenteOperatorComposition(g.config, { ...g.deps, admissionHistory: history }).admitWithinCredits(owner, g.input), /ADMISSION_UNCONFIRMED/);
+    assert.equal(g.calls(), 0);
+    assert.equal((await g.ledger.status()).reservedMicroUsd, 0);
+});
+
+test("daily credit pacer: new admissions wait (scheduler reads nothing, route refuses); admitted jobs are untouched", async () => {
+    const pacer = (allowed: boolean) => ({ allow: async (_p: string, type: string, estimate?: number) => { assert.equal(type, "self_heal_order"); assert.ok(estimate! > 0 && estimate! < 1_000_000, "config reservation ceiling below the measured estimate"); return { allowed, reason: allowed ? "ALLOWED" : "DAILY_ALLOWANCE_REACHED" }; },
+        estimate: async () => 1_000_000 }) as any;
+    const denied = await autoFixture(), operator = createAsistenteOperatorComposition(denied.config, { ...denied.deps, pacer: pacer(false) });
+    await (await operator.createFactoryWorkerOptions()).scheduleCompanyOrders!(owner);
+    assert.equal(denied.counts().enqueued, 0); assert.equal((await denied.ledger.status()).reservedMicroUsd, 0);
+    await assert.rejects(operator.admitWithinCredits(owner, companyOrderJob(denied.orders[0], project, 1)), /FACTORY_OPERATOR_DAILY_CREDIT_PACE/);
+    assert.equal(denied.counts().enqueued, 0);
+    const allowed = await autoFixture(), open = createAsistenteOperatorComposition(allowed.config, { ...allowed.deps, pacer: pacer(true) });
+    await (await open.createFactoryWorkerOptions()).scheduleCompanyOrders!(owner);
+    assert.equal(allowed.counts().enqueued, 1);
+    // A pacer that cannot read the ledger admits nothing new.
+    const broken = await autoFixture(), closed = createAsistenteOperatorComposition(broken.config, { ...broken.deps, pacer: { allow: async () => { throw Error("down"); }, estimate: async () => { throw Error("down"); } } as any });
+    await (await closed.createFactoryWorkerOptions()).scheduleCompanyOrders!(owner);
+    assert.equal(broken.counts().enqueued, 0);
+});

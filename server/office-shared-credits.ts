@@ -1,3 +1,5 @@
+import {guardFactoryOpenAiFetch} from "./factory-api-sdk";
+import {configuredFactoryApiPrice,defaultFactoryApiInvocation,apiEvidenceHash} from "./factory-api-invocation";
 import { createHash } from "node:crypto";
 import { createOfficeOpenAI, type OfficeOpenAIResult } from "./office-openai";
 import type { createSharedOpenAiCreditLedger } from "./shared-openai-credit-ledger";
@@ -6,6 +8,7 @@ import type { createSharedOpenAiCreditLedger } from "./shared-openai-credit-ledg
  * Caller supplies an immutable assignment + phase ID, never a new ID on retry.
  * Does not initialize grants, read secrets, install a worker or change policies. */
 export function createCreditLimitedOfficeRun(options: {
+  factoryInvocation?: ReturnType<typeof import("./factory-api-invocation").createFactoryApiInvocation>;
   ledger: ReturnType<typeof createSharedOpenAiCreditLedger>;
   env: NodeJS.ProcessEnv; fetch?: typeof fetch; now: () => Date;
   pricing: { model: string; inputNanoUsdPerToken: number; outputNanoUsdPerToken: number; validUntil: string };
@@ -27,9 +30,12 @@ export function createCreditLimitedOfficeRun(options: {
     if (!/^[A-Za-z0-9_.:-]{1,200}$/.test(executionId)) throw Error("OFFICE_CREDIT_ASSIGNMENT_REQUIRED");
     const key = `office:${createHash("sha256").update(executionId).digest("hex")}`;
     let admitted = false, tokenReservation: string | undefined;
+    let monetary=options.factoryInvocation;
     const provider = createOfficeOpenAI({ env, now,
       authorize: async limits => {
         if (now().getTime() >= Date.parse(price.validUntil)) throw Error("OFFICE_CREDIT_PRICING_EXPIRED");
+        monetary??=await defaultFactoryApiInvocation();
+        await monetary.preflight();
         const requestSha256 = createHash("sha256").update(JSON.stringify([price, limits, prompt])).digest("hex");
         const reservation = await ledger.reserve({ key, consumer: "office", requestSha256,
           maximumMicroUsd: Math.max(1, cost(limits.promptBytes + 1024, limits.maxOutputTokens)) });
@@ -44,7 +50,8 @@ export function createCreditLimitedOfficeRun(options: {
         const deadline = AbortSignal.timeout(Math.floor(Math.min(remaining, pricingRemaining)));
         const signal = init?.signal ? AbortSignal.any([init.signal, deadline]) : deadline;
         signal.throwIfAborted();
-        return transport(url, { ...init, signal });
+        return guardFactoryOpenAiFetch(transport,{executionId,consumer:"office",env,
+          price:env.FACTORY_API_PRICING_CONFIG?configuredFactoryApiPrice("openai",price.model,env.FACTORY_API_PRICING_CONFIG):{...price,evidenceSha256:apiEvidenceHash(price)},invoke:monetary})(url, { ...init, signal });
       }) as typeof fetch,
       recordUsage: async metadata => {
         if (!tokenReservation || metadata.model !== price.model) throw Error("OFFICE_CREDIT_USAGE_UNVERIFIED");

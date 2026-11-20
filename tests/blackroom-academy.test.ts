@@ -170,3 +170,18 @@ test("graduation needs three passed cases AND a real verified run; the replaceme
   assert.equal(summary.rows[0].realRuns, 1);
   assert.equal(summary.rows[0].purpose, "reemplazo");
 });
+
+test("owner web pause retains website cohort and continues noncommercial academy roles", async () => {
+  const previous = process.env.CEO_PAUSED_DOMAINS; process.env.CEO_PAUSED_DOMAINS = "websites,dropshipping";
+  try {
+    const initial = { ...emptyCompanyState(), careers: { "blackroom-website": career("blackroom-website"), "blackroom-analytics": career("blackroom-analytics") }, trainees: [studied("blackroom-website"), studied("blackroom-analytics")] };
+    const h = harness(initial), runner = createBlackRoomAcademyRunner({ council: h.council, run: h.run, now: h.now, dailyPairs: 2 });
+    await runner.tick();
+    assert.equal(h.calls.length, 2); assert.ok(h.calls.every(call => call.prompt.role === "blackroom-analytics"));
+    assert.deepEqual(h.company().trainees.find(t => t.forAgentId === "blackroom-website"), initial.trainees[0]);
+    const history = structuredClone(h.company().blackroomAcademyJobs);
+    process.env.CEO_PAUSED_DOMAINS = ""; await runner.tick();
+    assert.equal(h.calls.length, 4); assert.equal(h.calls.at(-1)!.prompt.role, "blackroom-website");
+    assert.deepEqual(h.company().blackroomAcademyJobs!.slice(0, 1), history);
+  } finally { if (previous === undefined) delete process.env.CEO_PAUSED_DOMAINS; else process.env.CEO_PAUSED_DOMAINS = previous; }
+});

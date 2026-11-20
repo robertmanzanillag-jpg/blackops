@@ -5,7 +5,7 @@ import { PENDING_OFFICE_ROLES, sourceDigest, type SqlAuditRole } from "../server
 import { WEB_SOURCE_ROLES } from "../server/office-web-role-sources";
 import {
   countByStatus, parseOwner, shapeCapabilityTraining, shapeCouncil, shapeReviewerAcademy, shapeRoleWork, shapeTokens,
-  shapeWebSources, shapeWorkers, webSourceOwnerKey,
+  shapeSourceDocuments, shapeWebSources, shapeWorkers, webSourceOwnerKey,
 } from "../script/office-status-shape";
 
 const NOW = Date.parse("2026-11-12T10:00:00Z"), owner = "private-owner-id-123";
@@ -93,4 +93,15 @@ test("council shaping handles missing rows and missing officeExecution", async (
   const full = shapeCouncil(JSON.stringify({ company: { trainees: [{}], academyJobs: [] }, officeExecution: { roleWork: await realJournal(), tokens: { reservations: [] } } }), owner, NOW);
   assert.equal(full.officeExecutionPresent && full.roleWork?.valid, true);
   assert.ok(!JSON.stringify(full).includes(owner));
+});
+
+test("source documents: per-kind status counts, latest write and other-owner counts only", () => {
+  const shaped = shapeSourceDocuments(
+    [{ kind: "clip_report", status: "present", count: 3, latest: "2026-11-12T09:00:00Z" }, { kind: "clip_report", status: "invalid", count: "1", latest: new Date("2026-11-12T08:00:00Z") }, { kind: "clip_metrics", status: "secret-text", count: 1, latest: null }],
+    [{ kind: "clip_report", count: 5 }, { kind: "private-kind", count: 9 }],
+  );
+  assert.deepEqual(shaped.clip_report, { statuses: { present: 3, invalid: 1 }, latestWrittenAt: "2026-11-12T09:00:00.000Z", otherOwnerDocuments: 5 });
+  assert.deepEqual(shaped.clip_metrics, { statuses: { other: 1 }, latestWrittenAt: null, otherOwnerDocuments: 0 });
+  assert.deepEqual(shaped.social_metrics, { statuses: {}, latestWrittenAt: null, otherOwnerDocuments: 0 });
+  assert.ok(!JSON.stringify(shaped).includes("secret") && !JSON.stringify(shaped).includes("private"));
 });

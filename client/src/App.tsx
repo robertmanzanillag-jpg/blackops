@@ -127,6 +127,7 @@ function AuthenticatedRouter() {
           <Route path="/ceo" component={CeoDashboardPage} />
           <Route path="/tools" component={ToolsPage} />
           <Route path="/agents-office" component={AgentsOfficePage} />
+          <Route path="/agents-office/panel" component={AgentsOfficePage} />
           <Route path="/agent-chat" component={AgentChatPage} />
           <Route path="/revenue-engine/advanced" component={RevenueEngineAdvancedPage} />
           <Route path="/revenue-engine" component={RevenueEnginePage} />

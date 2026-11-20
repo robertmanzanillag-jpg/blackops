@@ -13,6 +13,7 @@ import {
 import path from "node:path";
 import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
+import { execMagick } from "./clippers-portable-magick.mjs";
 
 const execFileAsync = promisify(execFile);
 const MIN_SECONDS = 20;
@@ -80,7 +81,8 @@ async function containedRegularFile(root, candidate) {
 
 async function runBinary(binary, args) {
   if (!LOCAL_BINARY_ALLOWLIST.has(binary)) throw new Error("local_binary_not_allowed");
-  return execFileAsync(binary, args, { encoding: "utf8", maxBuffer: 8 * 1024 * 1024, windowsHide: true });
+  const options = { encoding: "utf8", maxBuffer: 8 * 1024 * 1024, windowsHide: true };
+  return binary === "magick" ? execMagick(args, options) : execFileAsync(binary, args, options);
 }
 
 async function probe(filePath, run = runBinary) {

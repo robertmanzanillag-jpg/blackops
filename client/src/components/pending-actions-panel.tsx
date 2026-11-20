@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { queryClient } from "@/lib/queryClient";
+import { KongMirrorPanel } from "@/components/kong-mirror-panel";
 
 type PendingAction = {
   id: string;
@@ -157,7 +158,9 @@ export function PendingActionsPanel() {
                   <p className="mt-1 text-[11px] text-zinc-600">{action.actionType}</p>
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-2">
-                  {action.actionType === "radio_edit.resolve_dj_name" ? null : action.status !== "approved" ? (
+                  {action.actionType === "kong_mirror_improvement" ? (
+                    <KongMirrorPanel reportKey={String(action.input?.reportKey || "")} triggerLabel="Ver equipo, fotos y decidir" />
+                  ) : action.actionType === "radio_edit.resolve_dj_name" ? null : action.status !== "approved" ? (
                     <Button
                       size="sm"
                       onClick={() => mutation.mutate({ id: action.id, action: "approve" })}
@@ -178,7 +181,7 @@ export function PendingActionsPanel() {
                       Ejecutar
                     </Button>
                   )}
-                  <Button
+                  {action.actionType !== "kong_mirror_improvement" && <Button
                     size="sm"
                     variant="outline"
                     onClick={() => mutation.mutate({ id: action.id, action: "reject" })}
@@ -187,7 +190,7 @@ export function PendingActionsPanel() {
                   >
                     <X className="mr-1 h-3.5 w-3.5" />
                     Rechazar
-                  </Button>
+                  </Button>}
                 </div>
               </div>
               {action.actionType === "radio_edit.resolve_dj_name" && action.status !== "approved" && (

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { WHATSAPP_CAREER_ID as ID, whatsappOfficeView, withWhatsAppOfficeAgent, type WhatsAppReaderEvidence } from "../shared/whatsapp-office-agent";
-import { advanceKongCompany } from "../server/kong-company";
+import { advanceKongCareers } from "../server/kong-company";
 import { emptyCompanyState } from "../shared/agent-company";
 import { emptyRoleLifecycleState, reconcileRoleLifecycles, activateCandidatePolicy } from "../shared/office-role-lifecycle";
 import { buildKongOfficeWing } from "../client/src/lib/kong-office-wing";
@@ -60,19 +60,19 @@ test("empty, private, future, invalid scope/count and inconsistent success never
 });
 
 test("PR330 ledger credits each completed read once; heartbeat/replay/setup/failure preserve life/history", () => {
-  const first = advanceKongCompany({ company: emptyCompanyState(), evidenceAt: {}, evidence: evidence(reader()), now: NOW });
+  const first = advanceKongCareers({ company: emptyCompanyState(), evidenceAt: {}, evidence: evidence(reader()), now: NOW });
   assert.equal(first.company.careers[ID].points, 10);
   const original = first.company.careers[ID];
   for (const value of [reader(), reader({observedAt:at(1),lastReviewAt:at(1)}), reader({reader:"reading"}),
     reader({reader:"blocked",blocker:"permission-required"}), reader({reader:"blocked",blocker:"interaction-failed"}),
     reader({session:"disconnected"}), undefined]) {
-    const next = advanceKongCompany({ company: first.company, evidenceAt: first.evidenceAt, evidence: evidence(value), now: NOW + 60000 });
+    const next = advanceKongCareers({ company: first.company, evidenceAt: first.evidenceAt, evidence: evidence(value), now: NOW + 60000 });
     assert.deepEqual(next.company.careers[ID], original); assert.deepEqual(next.evidenceAt, first.evidenceAt);
   }
-  const newResult = advanceKongCompany({ company: first.company, evidenceAt: first.evidenceAt, evidence: evidence(reader({lastSuccessAt:at(0),lastAttemptAt:at(0)})), now: NOW });
+  const newResult = advanceKongCareers({ company: first.company, evidenceAt: first.evidenceAt, evidence: evidence(reader({lastSuccessAt:at(0),lastAttemptAt:at(0)})), now: NOW });
   assert.equal(newResult.company.careers[ID].points, 20); assert.equal(newResult.company.careers[ID].generation, original.generation);
   const historical = { ...newResult.company, careers: { ...newResult.company.careers, [ID]: { ...newResult.company.careers[ID], memory: [{at:at(-1),text:"Synthetic learned history"}], firedCount:2, generation:3 } } };
-  const noRead = advanceKongCompany({company: historical,evidenceAt:newResult.evidenceAt,evidence:undefined,now:NOW});
+  const noRead = advanceKongCareers({company: historical,evidenceAt:newResult.evidenceAt,evidence:undefined,now:NOW});
   assert.deepEqual(noRead.company, historical);
   const lifecycle = reconcileRoleLifecycles(emptyRoleLifecycleState(), historical, NOW);
   assert.equal(lifecycle.roles[ID].status, "unsupported");
@@ -84,7 +84,7 @@ test("PR330 ledger credits each completed read once; heartbeat/replay/setup/fail
 test("no career/penalty is fabricated before any complete read, and generic agent claims cannot award points", () => {
   for (const value of [undefined,reader({reader:"reading"}),reader({reader:"blocked",blocker:"missing-reference"})]) {
     const snapshot = evidence(value); snapshot.agents[0] = {...snapshot.agents[0],state:"healthy",lastRunAt:at(0),blocker:null};
-    const next = advanceKongCompany({company:emptyCompanyState(),evidenceAt:{},evidence:snapshot,now:NOW});
+    const next = advanceKongCareers({company:emptyCompanyState(),evidenceAt:{},evidence:snapshot,now:NOW});
     assert.equal(next.company.careers[ID], undefined);
   }
 });
@@ -102,7 +102,7 @@ test("snapshot cache and in-flight responses are isolated by authenticated accou
 });
 
 test("protocol-v2 mock migration retains WhatsApp career/history and deduplicated credit ledger verbatim", async () => {
-  const observed = advanceKongCompany({company:emptyCompanyState(),evidenceAt:{},evidence:evidence(reader()),now:NOW});
+  const observed = advanceKongCareers({company:emptyCompanyState(),evidenceAt:{},evidence:evidence(reader()),now:NOW});
   const source = { ...emptyCouncilState(), kongCompany: observed.company, kongEvidenceAt: observed.evidenceAt,
     kongLastStatuses: observed.statuses, kongObservedAt: observed.observedAt };
   source.kongCompany.careers[ID].memory.push({at:at(-1),text:"Synthetic retained reader history"});
@@ -116,7 +116,7 @@ test("protocol-v2 mock migration retains WhatsApp career/history and deduplicate
   } });
   await importOfficeCouncilHistory(client(), "fixture-owner", 7);
   assert.deepEqual(copied, source);
-  const replay=advanceKongCompany({company:copied!.kongCompany,evidenceAt:copied!.kongEvidenceAt,evidence:evidence(reader()),now:NOW});
+  const replay=advanceKongCareers({company:copied!.kongCompany,evidenceAt:copied!.kongEvidenceAt,evidence:evidence(reader()),now:NOW});
   assert.deepEqual(replay.company.careers[ID],source.kongCompany.careers[ID]);
   assert.deepEqual(replay.evidenceAt,source.kongEvidenceAt);
   copied=undefined;

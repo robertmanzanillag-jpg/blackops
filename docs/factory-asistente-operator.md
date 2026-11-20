@@ -223,3 +223,74 @@ This opt-in does not enable general network access or change the shared budget.
 ## Idle process presence
 
 The long-lived Windows loop keeps a 15-second database maintenance heartbeat while idle. Its claim/admission poll remains hourly. Presence means the process can reach its existing ledger; it does not mean a job is running, a proposal succeeded, or publication is enabled. Adapter capability flags are unchanged. Unknown work, invalid/expired leases and persistence failures stop renewed presence; shutdown clears the interval and idle wait. Maintenance calls are serialized and a lookup finishing after stop cannot start a new heartbeat. An already-issued database write can finish after stop; its timestamp expires naturally in the dashboard window. No provider requests or model usage are introduced by idle maintenance.
+
+## One-shot failure diagnosis and recovery
+
+The trusted one-shot launcher logs `factory_once_failure` JSON with a fixed
+`phase`, an allowlisted `code`, and `automaticReplay: false`. It never logs raw
+exception messages, stacks, provider payloads or database details. Unknown errors
+use `FACTORY_ONCE_UNAVAILABLE`; a PostgreSQL `55P03` uses
+`FACTORY_DATABASE_LOCK_UNAVAILABLE`. Cleanup errors are reported separately and
+cannot replace the original startup failure. A quarantined execution continues
+to exit nonzero without retrying.
+
+Shared-credit startup refusal codes identify the existing guards:
+
+| Code suffix (after `FACTORY_OPERATOR_`) | Operator next step |
+| --- | --- |
+| `CREDIT_UNCERTAIN` | Read the existing shared ledger and inspect the exact unresolved reservation; retain its hold. |
+| `CREDIT_EXPIRED` | Verify the grant's expiry; use the existing grant procedure for a genuinely new billing scope. |
+| `CREDIT_OVERRUN` | Reconcile verified usage and the original ceiling before considering any further work. |
+| `CREDIT_INSUFFICIENT` | Inspect available balance and configured build/review ceilings; do not increase spend automatically. |
+| `PRICING_EXPIRED` | Obtain verified current pricing before updating the operator configuration. |
+
+The shared ledger intentionally covers both office and factory. An unresolved
+office reservation can therefore stop factory startup before scheduling, even
+when the office one-shot itself exits cleanly after idle cycles. A successful
+office process is not evidence that a capability training run completed.
+
+An expired capability run with status `unknown` retains its original generation,
+fence, execution IDs and shared reservation. Provider CSV totals or aggregate
+absence are insufficient to attribute an execution or establish no charge. Do
+not release or settle a hold at zero based on those totals, create a fresh
+execution ID, or replay the task. The existing cancellation helper accepts only
+eligible holdout runs with its locked verification evidence; it cannot cancel a
+production run. Production recovery requires a separately reviewed procedure
+with attributable provider and durable execution evidence. Until that evidence
+exists, preserve the unknown run and hold. Neither startup diagnostics nor a
+successful preflight authorize a provider call, self-heal enablement or deployment.
+
+For a database lock refusal, inspect the owner-lock holder through the existing
+read-only diagnostics. A lock timeout identifies contention, not its holder or a
+safe transaction to terminate. Do not kill sessions, clear ledgers or enable
+`OFFICE_SELF_HEAL_ENABLED` as a recovery shortcut.
+
+### Follow-up design: attributable admission journal
+
+This is a review proposal, not an installed recovery path. Future execution
+admission should durably bind owner, run ID, fence, generation, phase execution
+ID, shared reservation key, token reservation ID, request digest and code
+revision. Store an append-only transition journal with compare-and-swap fences:
+`assigned` → `shared_reserved` → `tokens_reserved` → `provider_start_intent` →
+`response_received` → `settled`. The provider start intent must commit before
+transport and must make uncertain/restarted executions ineligible for replay.
+Record the attributable response ID and independently measured usage when known.
+Do not store prompts, keys or provider payloads in public diagnostics.
+
+A failed token admission can gain a durable `never_dispatched` transition only
+before any provider start intent, after the original executor has drained, with
+the exact immutable assignment and both ledgers locked in a consistent order.
+An absent marker alone is not a receipt. A lost journal acknowledgment, unknown
+fence, ambiguous token commit or possible live executor must preserve uncertainty.
+Any future production void must retain the original run and hold history, carry
+an operator audit proof, and grant neither training credit nor independent
+success. It cannot retroactively supply missing evidence for older runs.
+
+Before implementing that protocol, fake-only validation must cover process death
+between every transition, lost acknowledgments on each ledger, concurrent
+executors and recovery, changed generations/fences, provider timeout after start,
+duplicate response receipts, invalid prices and late settlement. Prove that no
+fault invokes the provider twice and that `never_dispatched` cannot coexist with
+a provider start intent or response receipt. Current tests separately demonstrate
+that token refusal (including a lost commit acknowledgment) occurs before fetch
+and still retains the shared unknown hold under today's protocol.

@@ -13,7 +13,7 @@ test("counts identical prompt before bounded stateless generation and rounds cos
  assert.deepEqual(await generate(input()),{status:"completed",text:"verified text",costCents:1,inputTokens:100,outputTokens:20});
  assert.deepEqual(calls.map(c=>c.url),["https://api.openai.com/v1/responses/input_tokens","https://api.openai.com/v1/responses"]);
  assert.deepEqual(calls[0].body,{model,instructions:"Review synthetic code",input:"fixture"});
- assert.deepEqual(calls[1].body,{...calls[0].body,max_output_tokens:100,store:false,tools:[],stream:false,background:false,service_tier:"default",truncation:"disabled"});
+ assert.deepEqual(calls[1].body,{...calls[0].body,max_output_tokens:100,store:false,tools:[],stream:false,service_tier:"default"});
 });
 test("worst-case output reservation blocks generation even when likely output is cheap",async()=>{
  let calls=0;const generate=createOpenAiFactoryTextProvider({...config,outputNanoUsdPerToken:1000000,request:async()=>{calls++;return count();}});

@@ -1,3 +1,4 @@
+import { assertCeoDomainActive, ceoDomainStatus } from "./ceo-domain-policy";
 import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
@@ -3329,6 +3330,7 @@ function buildRevenueSystemReadiness(input: {
 }
 
 export function buildRevenueScoutingMission(input: RevenueScoutingMissionInput) {
+  assertCeoDomainActive("websites");
   const parsed = revenueScoutingMissionSchema.parse(input);
   const paidSpendUsd = Math.min(parsed.maxPaidDataSpendUsd, 100);
   const isFreeMode = paidSpendUsd === 0;
@@ -3404,6 +3406,7 @@ export function buildRevenueScoutingMission(input: RevenueScoutingMissionInput) 
 }
 
 export function buildRevenueLeadRadar(input: RevenueLeadRadarInput) {
+  assertCeoDomainActive("websites");
   const parsed = revenueLeadRadarSchema.parse(input);
   const niches = parsed.niches
     .split(",")
@@ -3540,6 +3543,7 @@ export function buildRevenueLeadRadar(input: RevenueLeadRadarInput) {
 }
 
 export function recordRevenueScoutingMission(input: RevenueScoutingMissionInput) {
+  assertCeoDomainActive("websites");
   loadRevenueScoutingMissions();
   const mission = buildRevenueScoutingMission(input);
   const now = new Date().toISOString();
@@ -3565,6 +3569,7 @@ export function recordRevenueScoutingMission(input: RevenueScoutingMissionInput)
 }
 
 export function recordRevenueApprovalDecision(input: RevenueApprovalDecisionInput) {
+  assertCeoDomainActive("websites");
   loadRevenueApprovalDecisions();
   const parsed = revenueApprovalDecisionSchema.parse(input);
   const snapshot = getRevenueEngineSnapshot();
@@ -3608,6 +3613,7 @@ function buildAutomationIntakeAnswerTemplate(questions: string[], missingAnswers
 }
 
 export function recordRevenueAutomationIntake(input: RevenueAutomationIntakeInput) {
+  assertCeoDomainActive("websites");
   loadRevenueAutomationIntakes();
   const parsed = revenueAutomationIntakeSchema.parse(input);
   const quote = buildAutomationQuote(parsed);
@@ -3644,6 +3650,7 @@ export function recordRevenueAutomationIntake(input: RevenueAutomationIntakeInpu
 }
 
 export function answerRevenueAutomationIntake(input: RevenueAutomationIntakeAnswerInput) {
+  assertCeoDomainActive("websites");
   loadRevenueAutomationIntakes();
   const parsed = revenueAutomationIntakeAnswerSchema.parse(input);
   const intake = revenueAutomationIntakes.find((item) => item.id === parsed.intakeId);
@@ -3692,6 +3699,7 @@ export function answerRevenueAutomationIntake(input: RevenueAutomationIntakeAnsw
 }
 
 export function convertRevenueAutomationIntakeToOpportunity(input: RevenueAutomationIntakeConvertInput) {
+  assertCeoDomainActive("websites");
   loadRevenueAutomationIntakes();
   const parsed = revenueAutomationIntakeConvertSchema.parse(input);
   const intake = revenueAutomationIntakes.find((item) => item.id === parsed.intakeId);
@@ -3744,6 +3752,7 @@ export function convertRevenueAutomationIntakeToOpportunity(input: RevenueAutoma
 }
 
 export function runRevenueAutomationAgentCommand(input: RevenueAutomationAgentCommandInput) {
+  assertCeoDomainActive("websites");
   const parsed = revenueAutomationAgentCommandSchema.parse(input);
   const intakeResult = recordRevenueAutomationIntake({
     businessName: parsed.businessName,
@@ -3972,6 +3981,7 @@ export function runRevenueAutomationAgentCommand(input: RevenueAutomationAgentCo
 }
 
 export function createDeliveryWorkspaceFromAutomationOpportunity(input: RevenueAutomationOpportunityDeliveryInput) {
+  assertCeoDomainActive("websites");
   loadRevenueAutomationOpportunities();
   loadRevenueLedger();
   loadRevenueDeliveryWorkspaces();
@@ -4079,6 +4089,7 @@ function revenueWebsitePaymentEvidenceBlocker(opportunity: RevenueWebsiteOpportu
 }
 
 export function createWebsiteDeliveryWorkspaceFromLead(input: RevenueWebsiteDeliveryWorkspaceInput) {
+  assertCeoDomainActive("websites");
   loadRevenueLeads();
   loadRevenueOutreach();
   loadRevenueLedger();
@@ -4339,6 +4350,7 @@ export function createWebsiteDeliveryWorkspaceFromLead(input: RevenueWebsiteDeli
 }
 
 export function closeRevenueAutomationOpportunity(input: RevenueAutomationOpportunityCloseInput) {
+  assertCeoDomainActive("websites");
   loadRevenueAutomationOpportunities();
   loadRevenueLedger();
   const parsed = revenueAutomationOpportunityCloseSchema.parse(input);
@@ -4739,6 +4751,7 @@ function syncRevenueWebsiteOpportunityFromDepositOutcome(
 }
 
 export function recordRevenueWebsiteOpportunity(input: RevenueWebsiteOpportunityInput) {
+  assertCeoDomainActive("websites");
   loadRevenueLeads();
   loadRevenueOutreach();
   loadRevenueWebsiteOpportunities();
@@ -4834,6 +4847,7 @@ export function recordRevenueWebsiteOpportunity(input: RevenueWebsiteOpportunity
 }
 
 export function closeRevenueWebsiteOpportunity(input: RevenueWebsiteOpportunityCloseInput) {
+  assertCeoDomainActive("websites");
   loadRevenueLeads();
   loadRevenueOutreach();
   loadRevenueLedger();
@@ -5555,6 +5569,7 @@ function buildRevenueScoutSlotTemplate(input: {
 }
 
 export function runRevenueDailyScoutSprint(input: z.input<typeof revenueDailyScoutSprintSchema> = {}) {
+  assertCeoDomainActive("websites");
   loadRevenueScoutingMissions();
   loadRevenueDailyScoutSprints();
   const parsed = revenueDailyScoutSprintSchema.parse(input);
@@ -5925,6 +5940,7 @@ function buildRevenueScoutDispatchSummary(sprint: RevenueDailyScoutSprint) {
 }
 
 export function runRevenueScoutDispatch(input: z.input<typeof revenueDailyScoutSprintSchema> = {}) {
+  assertCeoDomainActive("websites");
   const result = runRevenueDailyScoutSprint({
     ...input,
     notes: input.notes || "Scout dispatch created from Revenue Engine UI.",
@@ -7018,6 +7034,29 @@ function buildRevenueMoneyActivationPlan(input: {
   };
 }
 
+/** Effective read-only guidance; persisted records and top-level metrics are unchanged. */
+function heldRevenueGuidance<T>(value: T, key = ""): T {
+  const reason = "Pausado por el dueño. Cola e historial conservados; foco en fábrica, academia y Clippers.";
+  const facts = /^(?:id|.*Id|.*At|name|label|role|owner|ownerAgent|mainAgent|ceoAgent|agent|source|area|niche|productName|moneyLine|current|currency|provider|model|evidence)$/;
+  const factLists = /^(?:sources|verifiedSources|requiredEnv|missingEnv|policyRoutes|requiredAccounts|requiredFields|requiredSummaryFields|requiredEvidenceFields|evidence|warnings)$/;
+  const constraints = /^(?:requiresHumanApproval|requiresRobertApproval|requiresApproval|approvalRequiredBefore|blockedActions|blockedAlways|blockedNow|blockedUntilApproved|doNotDoYet|hardBlocks)$/;
+  const actionLists = /^(?:steps|tasks|nextOperatingOrders|approvalRequests|stageRoadmap|campaignPortfolio|campaignScaleLadder|weeklyOperatingCadence|thirtyDayPlan|launchSequence|workstreams|revenuePath)$/;
+  if (Array.isArray(value)) {
+    if (actionLists.test(key)) return [] as T;
+    if (value.every(item => typeof item === "string")) return (factLists.test(key) ? [...value] : constraints.test(key) ? [...value, reason] : []) as T;
+    return value.map(item => heldRevenueGuidance(item, key)) as T;
+  }
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([name, item]) => [name, heldRevenueGuidance(item, name)])) as T;
+  if (typeof value === "boolean" && /^(?:can|sends|spends|deploys|publishes|creates|writes|persists|researches|readyFor|readyTo)|Allowed$|^(?:testOrderReady|sampleRecommended)$/.test(key)) return false as T;
+  if (typeof value === "number" && /^(?:canSpendUsd|canRiskNowUsd|maxSpendUsd|maxPaidSpendUsd|dailyContactLimit|maxLeads|dailyResearchTarget|targetRows|researchTarget|maxQualifiedRowsToImport|maxMockups|maxManualContacts|maxRecommendedBudgetUsd|spendCapUsd)$/.test(key)) return 0 as T;
+  if (typeof value === "string") {
+    if (facts.test(key)) return value;
+    if (/^(?:status|mode|stage|decision|vote)$/.test(key)) return "held" as T;
+    return (/apiAction|nextApiAction|actionType|copyable|(?:url|href|link)$|^(?:input|query|dbPushCommand|batchHeader)$/i.test(key) ? "" : reason) as T;
+  }
+  return value;
+}
+
 export function getRevenueEngineSnapshot() {
   loadRevenueLedger();
   loadRevenueLeads();
@@ -7200,7 +7239,10 @@ export function getRevenueEngineSnapshot() {
     releaseEvidence: buildRevenueProductionReleaseEvidence(revenueDeliveryWorkspaces),
   });
 
+  const operatingPause = ceoDomainStatus("websites");
+  const held = <T>(guidance: T): T => operatingPause.paused ? heldRevenueGuidance(guidance) : guidance;
   return {
+    operatingPause,
     metrics: {
       appsSold,
       automationsSold,
@@ -7211,34 +7253,34 @@ export function getRevenueEngineSnapshot() {
       profitUsd,
       approvalQueue,
     },
-    executiveSummary,
-    operatorConsole,
-    dailyMoneyCommand,
-    moneyActivationPlan,
-    systemReadiness,
-    launchReadiness,
-    agentOperatingContract,
-    businessScoutQueue,
+    executiveSummary: held(executiveSummary),
+    operatorConsole: held(operatorConsole),
+    dailyMoneyCommand: held(dailyMoneyCommand),
+    moneyActivationPlan: held(moneyActivationPlan),
+    systemReadiness: held(systemReadiness),
+    launchReadiness: held(launchReadiness),
+    agentOperatingContract: held(agentOperatingContract),
+    businessScoutQueue: held(businessScoutQueue),
     latestDailyScoutSprint: revenueDailyScoutSprints.at(-1) || null,
     recentDailyScoutSprints: revenueDailyScoutSprints.slice(-5).reverse(),
-    websiteSalesPacketQueue,
-    manualOutreachQueue,
-    publicLeadImportQueue,
-    websiteClosureQueue,
-    websiteDeliveryHandoffQueue,
-    websiteBuildHandoffQueue,
-    profitGuard,
-    nextBatchPlan,
-    approvalQueueItems,
-    costPolicy: {
+    websiteSalesPacketQueue: held(websiteSalesPacketQueue),
+    manualOutreachQueue: held(manualOutreachQueue),
+    publicLeadImportQueue: held(publicLeadImportQueue),
+    websiteClosureQueue: held(websiteClosureQueue),
+    websiteDeliveryHandoffQueue: held(websiteDeliveryHandoffQueue),
+    websiteBuildHandoffQueue: held(websiteBuildHandoffQueue),
+    profitGuard: held(profitGuard),
+    nextBatchPlan: held(nextBatchPlan),
+    approvalQueueItems: held(approvalQueueItems),
+    costPolicy: held({
       monthlyCapUsd: 100,
       stopRule: "Pausar outreach pagado si gasto mensual > ingresos cobrados o si llega a $100.",
       defaultMode: "draft_only",
       allowedWithoutApproval: ["research_plan", "mockup_brief", "qa_checklist", "proposal_draft"],
       requiresApproval: ["contact_business", "buy_data", "send_email", "send_sms", "publish_mockup", "charge_client"],
-    },
+    }),
     emailProvider: getRevenueEmailProviderStatus(),
-    agents: agentRoster,
+    agents: held(agentRoster),
     pipelineStages: buildPipelineStages(revenueLedger, revenueLeads),
     packages,
     recentLedger: revenueLedger.slice(-8).reverse(),
@@ -7713,6 +7755,7 @@ function parseRevenuePublicScoutEvidence(input: RevenuePublicScoutEvidenceInput)
 }
 
 export function recordRevenuePublicLeadCandidate(input: RevenuePublicLeadCandidateInput) {
+  assertCeoDomainActive("websites");
   loadRevenuePublicLeadCandidates();
   const parsed = revenuePublicLeadCandidateSchema.parse(input);
   const qualification = qualifyRevenueLead(parsed);
@@ -7780,6 +7823,7 @@ export function recordRevenuePublicLeadCandidate(input: RevenuePublicLeadCandida
 }
 
 export function recordRevenuePublicLeadCandidateBatch(input: RevenuePublicLeadCandidateBatchInput) {
+  assertCeoDomainActive("websites");
   const parsed = revenuePublicLeadCandidateBatchSchema.parse(input);
   const parsedBatch = parseRevenueMoneySprintSeedLeadBatch(parsed.batchText, { area: parsed.area, niche: parsed.niche });
   const recorded: Array<ReturnType<typeof recordRevenuePublicLeadCandidate>> = [];
@@ -7837,6 +7881,7 @@ export function recordRevenuePublicLeadCandidateBatch(input: RevenuePublicLeadCa
 }
 
 export function approveRevenuePublicLeadCandidate(input: RevenuePublicLeadCandidateApproveInput) {
+  assertCeoDomainActive("websites");
   loadRevenuePublicLeadCandidates();
   const parsed = revenuePublicLeadCandidateApproveSchema.parse(input);
   const candidate = revenuePublicLeadCandidates.find((item) => item.id === parsed.candidateId) || null;
@@ -7902,6 +7947,7 @@ export function approveRevenuePublicLeadCandidate(input: RevenuePublicLeadCandid
 }
 
 export function recordRevenuePublicScoutEvidence(input: RevenuePublicScoutEvidenceInput) {
+  assertCeoDomainActive("websites");
   const { parsed, candidates, blockedSeeds } = parseRevenuePublicScoutEvidence(input);
   const recorded = candidates.map((candidate) => recordRevenuePublicLeadCandidate(candidate));
   const uniqueRecorded = Array.from(new Map(recorded.map((item) => [item.candidate.id, item])).values());
@@ -7993,6 +8039,7 @@ function revenueVerifiedScoutConnectorSourceTaskId(input: RevenueVerifiedScoutCo
 }
 
 export function recordRevenueVerifiedScoutConnectorResults(input: RevenueVerifiedScoutConnectorInput) {
+  assertCeoDomainActive("websites");
   const parsed = revenueVerifiedScoutConnectorSchema.parse(input);
   const evidenceText = revenueVerifiedScoutConnectorEvidenceText(parsed);
   const notes = [
@@ -8052,6 +8099,7 @@ export function recordRevenueVerifiedScoutConnectorResults(input: RevenueVerifie
 }
 
 export function submitRevenueDailyScoutSprintEvidence(input: RevenueDailyScoutSprintSubmitInput) {
+  assertCeoDomainActive("websites");
   loadRevenueDailyScoutSprints();
   const parsed = revenueDailyScoutSprintSubmitSchema.parse(input);
   const sprint = revenueDailyScoutSprints.find((item) => item.id === parsed.sprintId) || null;
@@ -8109,6 +8157,7 @@ export function submitRevenueDailyScoutSprintEvidence(input: RevenueDailyScoutSp
 }
 
 export function runRevenuePublicScoutAgentCommand(input: RevenuePublicScoutAgentCommandInput) {
+  assertCeoDomainActive("websites");
   const parsed = revenuePublicScoutAgentCommandSchema.parse(input);
   const evidenceResult = recordRevenuePublicScoutEvidence(parsed);
   const readyCandidateIds = evidenceResult.recorded
@@ -8372,6 +8421,7 @@ function buildRevenuePublicLeadImportQueue(limit = 10): RevenuePublicLeadImportQ
 }
 
 export function runRevenueMoneySprintFromPublicCandidates(input: RevenueMoneySprintFromPublicCandidatesInput) {
+  assertCeoDomainActive("websites");
   loadRevenuePublicLeadCandidates();
   loadRevenueLeads();
 
@@ -8475,6 +8525,7 @@ export function runRevenueMoneySprintFromPublicCandidates(input: RevenueMoneySpr
 }
 
 export function buildRevenueMockup(input: RevenueMockupInput) {
+  assertCeoDomainActive("websites");
   const niche = input.niche.toLowerCase();
   const isFood = includesAny(niche, ["restaurant", "cafe", "coffee", "bar", "bakery", "food"]);
   const isBeauty = includesAny(niche, ["salon", "spa", "beauty", "barber", "nail"]);
@@ -8743,6 +8794,7 @@ function renderRevenueMockupPreviewHtml(mockup: ReturnType<typeof buildRevenueMo
 }
 
 export function buildRevenueMockupPreview(input: RevenueMockupInput, options: { writeFile?: boolean; standalone?: boolean } = {}) {
+  assertCeoDomainActive("websites");
   const parsed = revenueMockupSchema.parse(input);
   const mockup = buildRevenueMockup(parsed);
   const slug = `${slugifyRevenueValue(parsed.businessName)}-${slugifyRevenueValue(parsed.area)}-${Date.now()}`;
@@ -8804,6 +8856,7 @@ export function getRevenueMockupPreviewPath(slug: string) {
 }
 
 export function buildRevenueMockupTemplatePack(input: RevenueMockupTemplatePackInput) {
+  assertCeoDomainActive("websites");
   const monthlyCostCapUsd = 100;
   const dailyAiCostUsd = roundMoney(input.dailyMockupTarget * input.estimatedAiCostPerMockupUsd);
   const monthlyAiCostUsd = roundMoney(dailyAiCostUsd * 30);
@@ -9126,6 +9179,7 @@ export function buildRevenueLaunchReadiness(input: RevenueLaunchReadinessInput) 
 }
 
 export function buildRevenueProjectPlan(input: RevenueProjectPlanInput) {
+  assertCeoDomainActive("websites");
   const parsed = revenueProjectPlanSchema.parse(input);
   const grossMarginUsd = parsed.monthlyRetainerUsd - parsed.estimatedInternalCostUsd;
   const grossMarginPercent = parsed.monthlyRetainerUsd > 0 ? Math.round((grossMarginUsd / parsed.monthlyRetainerUsd) * 100) : 0;
@@ -9390,6 +9444,7 @@ function buildAgentWorkOrder(input: RevenueAgentRunInput) {
 }
 
 export function recordRevenueAgentRun(input: RevenueAgentRunInput) {
+  assertCeoDomainActive("websites");
   loadRevenueAgentRuns();
   const parsed = revenueAgentRunSchema.parse(input);
   const built = buildAgentWorkOrder(parsed);
@@ -9436,6 +9491,7 @@ function strongerRevenueLeadStatus(current: RevenueLead["status"], next: Revenue
 }
 
 export function recordRevenueLead(input: RevenueLeadInput) {
+  assertCeoDomainActive("websites");
   loadRevenueLeads();
   const qualification = qualifyRevenueLead(input);
   const incomingKey = normalizeRevenueLeadKey(input);
@@ -9496,6 +9552,7 @@ function syncLeadAfterOutreachDraft(draft: RevenueOutreachDraft) {
 }
 
 export function recordRevenueOutreachDraft(input: RevenueOutreachDraftInput) {
+  assertCeoDomainActive("websites");
   loadRevenueOutreach();
   const proposal = buildProposalEmail(input);
   const hasRecipient = revenueOutreachDraftHasRecipientPath(input);
@@ -9555,6 +9612,7 @@ export function recordRevenueOutreachDraft(input: RevenueOutreachDraftInput) {
 }
 
 export function recordRevenueSalesAutopilot(input: RevenueSalesAutopilotInput) {
+  assertCeoDomainActive("websites");
   const parsed = revenueSalesAutopilotSchema.parse(input);
   const clarificationGate = buildRevenueClarificationGate({
     request: parsed.request,
@@ -9692,6 +9750,7 @@ export function recordRevenueSalesAutopilot(input: RevenueSalesAutopilotInput) {
 }
 
 export function approveRevenueOutreachDraft(input: RevenueOutreachApproveInput) {
+  assertCeoDomainActive("websites");
   loadRevenueOutreach();
   const parsed = revenueOutreachApproveSchema.parse(input);
   const draft = revenueOutreachDrafts.find((item) => item.id === parsed.draftId) || null;
@@ -9740,6 +9799,7 @@ export function approveRevenueOutreachDraft(input: RevenueOutreachApproveInput) 
 }
 
 export function updateRevenueOutreachDraft(input: RevenueOutreachUpdateInput) {
+  assertCeoDomainActive("websites");
   loadRevenueOutreach();
   const parsed = revenueOutreachUpdateSchema.parse(input);
   const draft = revenueOutreachDrafts.find((item) => item.id === parsed.draftId) || null;
@@ -9786,6 +9846,7 @@ export function updateRevenueOutreachDraft(input: RevenueOutreachUpdateInput) {
 }
 
 export async function sendRevenueOutreachDraft(input: RevenueOutreachSendInput) {
+  assertCeoDomainActive("websites");
   loadRevenueOutreach();
   const parsed = revenueOutreachSendSchema.parse(input);
   const draft = revenueOutreachDrafts.find((item) => item.id === parsed.draftId);
@@ -9890,6 +9951,7 @@ export async function sendRevenueOutreachDraft(input: RevenueOutreachSendInput) 
 }
 
 export function recordRevenueOutreachOutcome(input: RevenueOutreachOutcomeInput) {
+  assertCeoDomainActive("websites");
   loadRevenueOutreach();
   loadRevenueLeads();
   loadRevenueWebsiteOpportunities();
@@ -9978,6 +10040,7 @@ export function recordRevenueOutreachOutcome(input: RevenueOutreachOutcomeInput)
 }
 
 export function recordRevenueLedgerEntry(input: RevenueLedgerEntryInput) {
+  assertCeoDomainActive("websites");
   loadRevenueLedger();
   const parsed = revenueLedgerEntrySchema.parse(input);
   if (isRevenueIncomeEntry(parsed.kind) && parsed.amountUsd > 0 && parsed.cashCollectedUsd <= 0) {
@@ -10054,6 +10117,7 @@ export function recordRevenueLedgerEntry(input: RevenueLedgerEntryInput) {
 }
 
 export function preflightRevenueExpense(input: RevenueExpensePreflightInput) {
+  assertCeoDomainActive("websites");
   const parsed = revenueExpensePreflightSchema.parse(input);
   const snapshot = getRevenueEngineSnapshot();
   const projectedSpendUsd = snapshot.metrics.estimatedSpendUsd + parsed.amountUsd + parsed.estimatedInternalCostUsd;
@@ -10658,6 +10722,7 @@ function buildRevenueClarificationGate(input: {
 }
 
 export function buildAutomationQuote(input: AutomationQuoteInput) {
+  assertCeoDomainActive("websites");
   const request = input.request.toLowerCase();
   const toolText = input.currentTools.toLowerCase();
   const clarificationGate = buildRevenueClarificationGate({
@@ -10789,6 +10854,7 @@ export function buildAutomationQuote(input: AutomationQuoteInput) {
 }
 
 export function recordRevenueAutomationOpportunity(input: RevenueAutomationOpportunityInput) {
+  assertCeoDomainActive("websites");
   loadRevenueAutomationOpportunities();
   const parsed = revenueAutomationOpportunitySchema.parse(input);
   const quote = buildAutomationQuote(parsed);
@@ -10853,6 +10919,7 @@ export function recordRevenueAutomationOpportunity(input: RevenueAutomationOppor
 }
 
 export function buildDeliveryReview(input: DeliveryReviewInput) {
+  assertCeoDomainActive("websites");
   const parsed = deliveryReviewSchema.parse(input);
   const grossMarginUsd = parsed.monthlyRetainerUsd - parsed.estimatedInternalMonthlyCostUsd;
   const grossMarginPercent = parsed.monthlyRetainerUsd > 0 ? Math.round((grossMarginUsd / parsed.monthlyRetainerUsd) * 100) : 0;
@@ -11040,6 +11107,7 @@ export function buildRevenueDeliveryWorkspace(input: RevenueDeliveryWorkspaceInp
 }
 
 export function recordRevenueDeliveryWorkspace(input: RevenueDeliveryWorkspaceInput) {
+  assertCeoDomainActive("websites");
   loadRevenueDeliveryWorkspaces();
   const parsed = revenueDeliveryWorkspaceSchema.parse(input);
   const workspace = buildRevenueDeliveryWorkspace(parsed);
@@ -11064,6 +11132,7 @@ export function updateRevenueDeliveryWorkspaceQa(
   input: RevenueDeliveryWorkspaceUpdateInput,
   options: RevenueDeliveryWorkspaceUpdateOptions = {},
 ) {
+  assertCeoDomainActive("websites");
   loadRevenueDeliveryWorkspaces();
   const parsed = revenueDeliveryWorkspaceUpdateSchema.parse(input);
   const workspaceIndex = revenueDeliveryWorkspaces.findIndex((item) => item.id === parsed.workspaceId);
@@ -11204,6 +11273,7 @@ export function recordRevenueDeliveryReleaseGate(
   input: RevenueDeliveryWorkspaceUpdateInput,
   options: RevenueDeliveryReleaseGateOptions = {},
 ) {
+  assertCeoDomainActive("websites");
   loadRevenueDeliveryWorkspaces();
   loadRevenueWebsiteOpportunities();
   loadRevenueOutreach();
@@ -11260,6 +11330,7 @@ export function getRevenueDeliveryWorkspaceById(workspaceId: string) {
 }
 
 export function deliverRevenueDeliveryWorkspaceFromTrustedApproval(input: RevenueDeliveryWorkspaceDeliverInput) {
+  assertCeoDomainActive("websites");
   return deliverRevenueDeliveryWorkspace(input, {
     allowRobertApprovalEvidence: true,
   });
@@ -11269,6 +11340,7 @@ export function deliverRevenueDeliveryWorkspace(
   input: RevenueDeliveryWorkspaceDeliverInput,
   options: RevenueDeliveryWorkspaceDeliverOptions = {},
 ) {
+  assertCeoDomainActive("websites");
   loadRevenueDeliveryWorkspaces();
   loadRevenueAutomationOpportunities();
   loadRevenueWebsiteOpportunities();
@@ -11356,6 +11428,7 @@ export function deliverRevenueDeliveryWorkspace(
 }
 
 export function recordRevenueDeliveryWorkspaceImprovementReview(input: RevenueDeliveryWorkspaceImprovementReviewInput) {
+  assertCeoDomainActive("websites");
   loadRevenueDeliveryWorkspaces();
   const parsed = revenueDeliveryWorkspaceImprovementReviewSchema.parse(input);
   const workspaceIndex = revenueDeliveryWorkspaces.findIndex((item) => item.id === parsed.workspaceId);
@@ -11428,6 +11501,7 @@ export function recordRevenueDeliveryWorkspaceImprovementReview(input: RevenueDe
 }
 
 export function buildProposalEmail(input: ProposalEmailInput) {
+  assertCeoDomainActive("websites");
   const websitePriceUsd = Number.isFinite(input.websitePriceUsd) ? input.websitePriceUsd : REVENUE_WEBSITE_DEFAULT_USD;
   const totalSetupUsd = websitePriceUsd + input.automationPriceUsd;
   const depositUsd = Math.round(totalSetupUsd * 0.5);
@@ -11861,6 +11935,7 @@ export function parseRevenueMoneySprintSeedLeadBatch(
 }
 
 export function previewRevenueMoneySprintSeeds(input: RevenueMoneySprintInput) {
+  assertCeoDomainActive("websites");
   const parsed = revenueMoneySprintSchema.parse(input);
   const parsedBatch = parseRevenueMoneySprintSeedLeadBatch(parsed.seedLeadBatchText, { area: parsed.area, niche: parsed.niche });
   const availableBatchSlots = Math.max(0, 25 - parsed.seedLeads.length);
@@ -11943,6 +12018,7 @@ function revenueOutreachChannelFromLead(channel: RevenueLeadInput["contactChanne
 }
 
 export function runRevenueMoneySprint(input: RevenueMoneySprintInput) {
+  assertCeoDomainActive("websites");
   const parsed = revenueMoneySprintSchema.parse(input);
   const mission = recordRevenueScoutingMission({
     area: parsed.area,
@@ -12104,6 +12180,7 @@ export function runRevenueMoneySprint(input: RevenueMoneySprintInput) {
 }
 
 export function buildImprovementReview(input: ImprovementReviewInput) {
+  assertCeoDomainActive("websites");
   const replyRate = input.leadsContacted > 0 ? Math.round((input.replies / input.leadsContacted) * 100) : 0;
   const bookingRate = input.replies > 0 ? Math.round((input.callsBooked / input.replies) * 100) : 0;
   const closeRate = input.callsBooked > 0 ? Math.round((input.dealsClosed / input.callsBooked) * 100) : 0;
@@ -12214,6 +12291,7 @@ export function buildImprovementReview(input: ImprovementReviewInput) {
 }
 
 export function recordRevenueImprovementReview(input: ImprovementReviewInput) {
+  assertCeoDomainActive("websites");
   loadRevenueImprovementReviews();
   const review = buildImprovementReview(input);
   const now = new Date().toISOString();
@@ -12243,6 +12321,7 @@ export function recordRevenueImprovementReview(input: ImprovementReviewInput) {
 }
 
 export function buildRevenueEnginePlan(input: RevenueEnginePlanInput) {
+  assertCeoDomainActive("websites");
   const budgetUsd = Math.min(input.monthlyBudgetUsd, 100);
   const freePublicResearch = budgetUsd === 0;
   const researchCostUsd = freePublicResearch ? 0 : Number((input.leadCount * 0.03).toFixed(2));

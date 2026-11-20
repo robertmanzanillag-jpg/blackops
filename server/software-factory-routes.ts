@@ -42,7 +42,7 @@ const projectSchema = z.object({
 const budgetSchema = z.object({ fixedCents: z.number().int().min(0).max(10_000) }).strict();
 
 export function registerSoftwareFactoryRoutes(app: Express, options: {
-  store?: Pick<typeof softwareFactoryStore, "status" | "list" | "setPaused" | "initializeMonth" | "projects" | "saveProject"> & Partial<Pick<typeof softwareFactoryStore,"getCompletedJob">>;
+  store?: Pick<typeof softwareFactoryStore, "status" | "list" | "setPaused" | "initializeMonth" | "projects" | "saveProject"> & Partial<Pick<typeof softwareFactoryStore,"getCompletedJob"|"apiBudgetStatus">>;
   getRecoveredBuild?:typeof readFactoryRecoveredBuild;
   /** Read-only office journal used to link reviewer verdicts to proposals. */
   readOfficeReviews?: (owner: string) => Promise<OfficeRun[]>;
@@ -150,7 +150,11 @@ export function registerSoftwareFactoryRoutes(app: Express, options: {
           const reasonCode = job.status !== "completed" && typeof result.reason === "string" && result.reason.length <= 300 && result.reason.split(",").every(token => /^FACTORY_[A-Z0-9_]{1,100}(:[A-Za-z0-9_]{1,100})?$|^[a-z][a-z0-9]*(_[a-z0-9]+)+$/.test(token)) ? result.reason : undefined;
           return { costCents, evidenceCount, ...(blocker ? { blocker } : {}), ...(reasonCode ? { reasonCode } : {}), id: job.id, projectId: job.projectId, kind: job.kind, status: job.status, createdAt: job.createdAt, ...(job.headSha ? { headSha: job.headSha } : {}) }; }),
       };
-      res.json(view);
+      // The original cents projection describes the Factory ledger only. It is
+      // not a claim that historic external provider liabilities are reconciled.
+      const apiBudget=store.apiBudgetStatus ? await store.apiBudgetStatus(owner) : {
+        configured:false,remainingMicroUsd:null,paidAdmissionReady:false,reason:"FACTORY_API_AUTHORITY_UNAVAILABLE"};
+      res.json({...view,apiBudget});
     } catch { res.status(503).json({ error: "No se pudo verificar el registro persistente de la fábrica. No se confirma actividad." }); }
   });
   app.post("/api/software-factory/projects", async (req, res) => {

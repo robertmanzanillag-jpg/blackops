@@ -27,11 +27,12 @@ node --import tsx script/shared-credit-grant.ts new --scope=<scope> --id=<grant-
 Run it with `DATABASE_URL` set to the production database (for example
 `DATABASE_URL="$PROD_DB_URL" node --import tsx ...`). The line starting with
 `CONFIG_JSON=` is the value for the GitHub secret `OPENAI_SHARED_CREDIT_CONFIG_JSON`
-used by both `office-worker-cloud.yml` and `software-factory-cloud.yml`. It contains
-no credentials, but treat it as private configuration. The secret is optional: when it is empty the
-workflows run `script/shared-credit-config-from-db.ts`, which builds the same JSON read-only from the
-existing ledger (scope `OFFICE_SHARED_CREDIT_SCOPE`, else the single unexpired ledger; pricing from the
-`OFFICE_SHARED_CREDIT_*` keys in `.github/office-config.env`).
+used by both `office-worker-cloud.yml` and `software-factory-cloud.yml` as a fallback: the workflows first
+derive that JSON read-only from the ledger of `OFFICE_SHARED_CREDIT_SCOPE` (variable, else `.github/office-config.env`; default
+`openai-2026-11-19`; pricing from the `OFFICE_SHARED_CREDIT_*` variables, defaults gpt-6.1-sol $2/$10 valid
+until 2026-12-31) with `script/shared-credit-config-from-db.ts`. The 2026-11-19 grant is created by the
+`factory-ops` action `credit-new` (confirm=APLICAR). It contains
+no credentials, but treat it as private configuration.
 
 `--usd` must be the balance verified in the OpenAI billing page **after** all
 earlier charges; the tool does not read provider billing. Pricing must be the

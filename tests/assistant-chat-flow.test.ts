@@ -314,7 +314,7 @@ test("dashboard exposes monthly AI spend tracking", () => {
   assert.match(policy, /BLACKOPS_AI_MANUAL_MONTH_TO_DATE_USD/);
   assert.match(policy, /BLACKOPS_METRICOOL_MONTHLY_USD/);
   assert.match(routes, /\/api\/ai-spend\/monthly/);
-  assert.match(routes, /buildMonthlyAiSpendReport\(runs\)/);
+  assert.match(routes, /buildMonthlyAiSpendReport\(runs[,)]/);
   assert.match(dashboard, /MonthlySpendPanel/);
   assert.match(panel, /monthly-spend-panel/);
   assert.match(panel, /\/api\/ai-spend\/monthly/);

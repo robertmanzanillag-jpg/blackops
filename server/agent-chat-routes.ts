@@ -1,5 +1,5 @@
 import type { Express, Request, Response } from "express";
-import { AgentChatInputError, AgentChatNotFound, createAgentChatService, createChatStorageThreadStore } from "./agent-chat";
+import { AgentChatInputError, AgentChatNotFound, KongOrderUncertain, createAgentChatService, createChatStorageThreadStore } from "./agent-chat";
 import { getCurrentUserId, getSystemUserId } from "./user-context";
 
 type Service = ReturnType<typeof createAgentChatService>;
@@ -14,10 +14,11 @@ export function registerAgentChatRoutes(app: Pick<Express, "get" | "post">, deps
   const ownerUserId = deps.ownerUserId ?? getSystemUserId;
   let cached: Promise<Service> | undefined;
   const service = deps.service ?? ((owner: string) => cached ||= (async () => {
-    const [{ getAgentCouncil }, { chatStorage }, { createAgentChatModel }] = await Promise.all([
-      import("./agent-council"), import("./replit_integrations/chat/storage"), import("./agent-chat-model")]);
+    const [{ getAgentCouncil }, { chatStorage }, { createAgentChatModel }, { createKongOfficeOrderClient }] = await Promise.all([
+      import("./agent-council"), import("./replit_integrations/chat/storage"), import("./agent-chat-model"), import("./kong-office-orders")]);
     const council = getAgentCouncil();
-    return createAgentChatService({ store: createChatStorageThreadStore(chatStorage, owner), council, model: createAgentChatModel(council) });
+    // KONG orders read KONG_OFFICE_ORDER_URL / KONG_OFFICE_ORDER_TOKEN at call time; unset token = honest "not enabled" reply.
+    return createAgentChatService({ store: createChatStorageThreadStore(chatStorage, owner), council, model: createAgentChatModel(council), kongOrders: createKongOfficeOrderClient() });
   })());
   const allow = (req: Request, res: Response) => {
     try {
@@ -36,6 +37,7 @@ export function registerAgentChatRoutes(app: Pick<Express, "get" | "post">, deps
     catch (error) {
       if (error instanceof AgentChatInputError) return res.status(400).json({ error: error.message });
       if (error instanceof AgentChatNotFound) return res.status(404).json({ error: error.message });
+      if (error instanceof KongOrderUncertain) return res.status(503).json({ error: error.message });
       res.status(503).json({ error: "No se pudo completar la conversación. Intenta de nuevo." });
     }
   };

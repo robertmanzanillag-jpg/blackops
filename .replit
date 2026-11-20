@@ -19,6 +19,7 @@ localPort = 5012
 externalPort = 3000
 
 [env]
+CEO_PAUSED_DOMAINS = "websites,dropshipping"
 PORT = "5000"
 PUBLIC_BASE_URL = "https://robplanner.replit.app"
 OFFICE_WORKER_ENABLED = "false"

@@ -1,3 +1,4 @@
+import { ceoRolePaused } from "./ceo-domain-policy";
 import {randomUUID} from "node:crypto";
 import {z} from "zod";
 import {sourceDigest as digest,PENDING_OFFICE_ROLES,type PendingOfficeRole} from "./office-role-snapshots";
@@ -97,11 +98,38 @@ const promptLabel=(version?:string)=>version===CAPABILITY_PROMPT_VERSION?"Instru
 export function capabilityRunSummary(run:CapabilityTrainingState["runs"][number]){return {id:run.id,role:run.role,kind:run.kind,status:run.status,startedAt:run.startedAt,policyVersion:run.policyVersion,promptVersion:run.promptVersion||"source-triage-prompt-v1",promptLabel:promptLabel(run.promptVersion),instructionCorrected:run.promptVersion===CAPABILITY_PROMPT_VERSION,artifactId:run.artifactId,reason:run.reason,...(run.trained?{quality:gradeCapabilityTriage(run.task,run.trained.result.text).quality,costUsd:run.trained.cost.usd,responseId:run.trained.result.sessionId}:{})};}
 export function capabilityTrainingSummary(raw:unknown,owner:string,generations?:Record<string,number>){const state=parseCapabilityTraining(raw,owner);const lifecycle=capabilityLifecycleSummary(state,CAPABILITY_PROMPT_VERSION,gradeCapabilityTriage,undefined,generations);return state.policies.map(p=>({role:p.role,generation:p.generation,capability:CAPABILITY,policyVersion:p.version,status:p.status,lessons:p.lessons,trainingRunId:p.trainingRunId,promptVersion:p.promptVersion||"source-triage-prompt-v1",promptLabel:promptLabel(p.promptVersion),instructionCorrected:p.promptVersion===CAPABILITY_PROMPT_VERSION,origin:p.origin,runtimeApplicable:lifecycle.find(l=>l.policyVersion===p.version)!.productionAdmissible,comparisonQualified:p.promptVersion===CAPABILITY_PROMPT_VERSION&&eligible(state,p),lifecycle:lifecycle.find(l=>l.policyVersion===p.version),fullRolePromotion:false,scope:"Triage de auditorías guardadas exclusivamente; sin cambios de negocio ni reemplazo del rol."}));}
 
+/** Cost minimization: a daily audit whose triage inputs (issue codes, blocked
+ * source) equal those of the role's latest VERIFIED production run, still under
+ * the same active policy and the same model, would only repeat a known, passing answer. It is
+ * skipped instead of paying for the call. Any change in findings, policy,
+ * generation or a failed last answer runs normally. */
+export function capabilityInputUnchanged(state:CapabilityTrainingState,job:RoleWorkJob,at:number,model?:string):boolean{
+ // Unknown current model: never skip (a model change must re-verify the answer).
+ if(!model)return false;
+ let task:Task;try{task=realTask(job,at);}catch{return false;}
+ const last=state.runs.filter(r=>r.kind==="production"&&r.role===job.role&&r.generation===job.generation&&r.promptVersion===CAPABILITY_PROMPT_VERSION&&r.status==="completed"&&r.trained).sort((a,b)=>Date.parse(a.startedAt)-Date.parse(b.startedAt)).at(-1);
+ const answeredBy=last?.trained!.result.model;
+ // Same configured model (the provider may return a dated snapshot name of it).
+ if(!last||last.task.id===task.id||!answeredBy||(answeredBy!==model&&!answeredBy.startsWith(`${model}-`)))return false;
+ const policy=state.policies.find(p=>p.version===last.policyVersion);
+ if(!policy||policy.status!=="active"||capabilityPolicyLife(state,policy,CAPABILITY_PROMPT_VERSION,gradeCapabilityTriage).retiredAt)return false;
+ return gradeCapabilityTriage(last.task,last.trained!.result.text).passed&&digest([last.task.issueCodes,last.task.sourceBlocked])===digest([task.issueCodes,task.sourceBlocked]);
+}
+
+/** Lifecycle predicate: audit jobs the trainer deliberately skips are reported as skipped, not pending. */
+export function capabilitySkipPredicate(state:CapabilityTrainingState,at:number,model?:string){return (job:RoleWorkJob)=>capabilityInputUnchanged(state,job,at,model);}
+
 /** Transact must use the existing durable council transaction/CAS. run and
  * verifyCost are trusted adapters: verifyCost independently loads the admitted
  * ledger receipt, never model-authored prices. Existing budgets remain required. */
-export function createCapabilityTrainer(options:{owner:string;transact:(change:(s:CapabilityTrainingState,generations:Record<string,number>,otherAcademyRunning?:boolean)=>CapabilityTrainingState)=>Promise<CapabilityTrainingState>;loadWork:()=>Promise<RoleWorkState>;run:(prompt:string,call:{executionId:string;maxOutputTokens:number})=>Promise<OfficeOpenAIResult>;verifyCost:(request:{executionId:string;responseId:string;model:string;usage:z.infer<typeof usageSchema>})=>Promise<VerifiedCapabilityCost>;maxCallsPerDay:number;now?:()=>number;shouldStop?:()=>boolean}){
- if(!options.owner.trim()||!Number.isSafeInteger(options.maxCallsPerDay)||options.maxCallsPerDay<1||options.maxCallsPerDay>28)throw Error("CAPABILITY_EXISTING_DAILY_LIMIT_REQUIRED");
+/** Hard upper bound for OFFICE_CAPABILITY_MAX_CALLS_PER_DAY (raised from 28 at Robert's request). Each call
+ * still needs shared OpenAI credit and the office monthly token limit, so spend stays bounded by those. */
+export const OFFICE_CAPABILITY_MAX_CALLS_PER_DAY_LIMIT = 56;
+
+export function createCapabilityTrainer(options:{owner:string;transact:(change:(s:CapabilityTrainingState,generations:Record<string,number>,otherAcademyRunning?:boolean)=>CapabilityTrainingState)=>Promise<CapabilityTrainingState>;loadWork:()=>Promise<RoleWorkState>;run:(prompt:string,call:{executionId:string;maxOutputTokens:number})=>Promise<OfficeOpenAIResult>;verifyCost:(request:{executionId:string;responseId:string;model:string;usage:z.infer<typeof usageSchema>})=>Promise<VerifiedCapabilityCost>;maxCallsPerDay:number;now?:()=>number;shouldStop?:()=>boolean;
+ /** Current execution model; enables the input-unchanged skip (absent = never skip). */
+ model?:string}){
+ if(!options.owner.trim()||!Number.isSafeInteger(options.maxCallsPerDay)||options.maxCallsPerDay<1||options.maxCallsPerDay>OFFICE_CAPABILITY_MAX_CALLS_PER_DAY_LIMIT)throw Error("CAPABILITY_EXISTING_DAILY_LIMIT_REQUIRED");
  const now=options.now||Date.now;
  return {async tick(){
   if(options.shouldStop?.())return;
@@ -112,14 +140,14 @@ export function createCapabilityTrainer(options:{owner:string;transact:(change:(
    const used=state.runs.filter(r=>start-Date.parse(r.startedAt)<86400000).reduce((n,r)=>n+(r.status==="cancelled"?0:r.kind==="holdout"?2:1),0);
    // Give each current holder one real audit before spending paired calls on
    // already-observed holders. Historical runs and generation fences stay intact.
-   const productionJobs=[...work.jobs].sort((a,b)=>Date.parse(a.startedAt)-Date.parse(b.startedAt)||a.id.localeCompare(b.id)).filter(j=>generations[j.role]===j.generation && ["completed","blocked"].includes(j.status) && !state.runs.some(r=>r.kind==="production" && r.task.id===j.id && r.promptVersion===CAPABILITY_PROMPT_VERSION)).filter(j=>{
+   const productionJobs=work.jobs.filter(j=>!ceoRolePaused(j.role)).sort((a,b)=>Date.parse(a.startedAt)-Date.parse(b.startedAt)||a.id.localeCompare(b.id)).filter(j=>generations[j.role]===j.generation && ["completed","blocked"].includes(j.status) && !state.runs.some(r=>r.kind==="production" && r.task.id===j.id && r.promptVersion===CAPABILITY_PROMPT_VERSION)).filter(j=>{
     const policies=state.policies.filter(p=>p.role===j.role&&p.generation===j.generation&&p.promptVersion===CAPABILITY_PROMPT_VERSION);
     // Never silently respawn a retired baseline. Its candidate may still train;
     // unconsumed audits remain in roleWork for a strictly qualified successor.
     return !policies.length||policies.some(p=>["active","probation"].includes(p.status)&&!capabilityPolicyLife(state,p,CAPABILITY_PROMPT_VERSION,gradeCapabilityTriage).retiredAt);
-   });
+   }).filter(j=>!capabilityInputUnchanged(state,j,start,options.model));
    const firstProduction=productionJobs.find(j=>!state.runs.some(r=>r.kind==="production" && r.role===j.role && r.generation===j.generation && r.promptVersion===CAPABILITY_PROMPT_VERSION));
-   const candidates=state.policies.filter(p=>p.status==="candidate" && p.promptVersion===CAPABILITY_PROMPT_VERSION && generations[p.role]===p.generation && work.jobs.some(j=>j.role===p.role && j.generation===p.generation));
+   const candidates=state.policies.filter(p=>!ceoRolePaused(p.role) && p.status==="candidate" && p.promptVersion===CAPABILITY_PROMPT_VERSION && generations[p.role]===p.generation && work.jobs.some(j=>j.role===p.role && j.generation===p.generation));
    const candidate=candidates.find(p=>!state.runs.some(r=>r.kind==="holdout" && r.role===p.role && start-Date.parse(r.startedAt)<86400000) && state.runs.filter(r=>r.kind==="holdout"&&r.policyVersion===p.version).length<3);
    if(!firstProduction && candidate && used+2<=options.maxCallsPerDay){const index=[0,1,2].find(i=>!state.runs.some(r=>r.kind==="holdout"&&r.policyVersion===candidate.version&&r.fixtureIndex===i))!;assignment={id,promptVersion:CAPABILITY_PROMPT_VERSION,fence,role:candidate.role,generation:candidate.generation,kind:"holdout",policyVersion:candidate.version,baselineVersion:candidate.parentVersion!,fixtureIndex:index,task:capabilityHoldout(candidate.role,index),startedAt:new Date(start).toISOString(),expiresAt:new Date(start+ttl).toISOString(),status:"running"};}
    else if(used+1<=options.maxCallsPerDay){

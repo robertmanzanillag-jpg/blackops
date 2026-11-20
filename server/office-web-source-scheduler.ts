@@ -33,7 +33,7 @@ export async function startOfficeWebSourceExporter(){
  // One connection only. A serverless database can take well over ten seconds
  // to accept the first connection after both it and this autoscaled host wake,
  // so allow a longer connect and a bounded retry of connection-level failures.
- const owner=getSystemUserId(),raw=new pg.Pool({connectionString:resolveDatabaseConnectionString(),max:1,allowExitOnIdle:true,connectionTimeoutMillis:OFFICE_SOURCE_CONNECT_TIMEOUT_MS,statement_timeout:10000});
+ const owner=getSystemUserId(),raw=new pg.Pool({connectionString:resolveDatabaseConnectionString(),max:1,allowExitOnIdle:true,connectionTimeoutMillis:OFFICE_SOURCE_CONNECT_TIMEOUT_MS,statement_timeout:10000, application_name: "blackops-office-web-sources" });
  raw.on("error",()=>undefined);
  const pool={...withConnectionRetry(raw),connect:()=>raw.connect()};
  const env=Object.fromEntries(["CLIPPERS_LOCAL_NEWS_WORKSPACE","DROPSHIPPING_PRODUCTS_PATH","DROPSHIPPING_SUPPLIERS_PATH","DROPSHIPPING_SOCIAL_METRICS_PATH","MARKETING_COMMAND_CENTER_LEARNING_PATH"].map(key=>[key,process.env[key]]));

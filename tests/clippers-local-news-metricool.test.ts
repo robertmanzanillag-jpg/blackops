@@ -77,7 +77,7 @@ async function workspace(items: unknown[]) {
   return dir;
 }
 
-const credentials = { METRICOOL_USER_TOKEN: "real-token", METRICOOL_USER_ID: "123", CLIPPERS_LOCAL_NEWS_ENABLE_X: "true" };
+const credentials = { METRICOOL_USER_TOKEN: "real-token", METRICOOL_USER_ID: "123", CLIPPERS_LOCAL_NEWS_ENABLE_X: "true", CLIPPERS_LOCAL_NEWS_SENDER_ENABLED: "true" };
 const fixedNow = () => new Date("2026-07-21T16:00:00.000Z");
 
 // Explicit verified fixtures for legacy delivery-behaviour tests. Production
@@ -140,7 +140,7 @@ test("X delivery is opt-in so the paid Metricool add-on stays off by default", a
   const dir = await workspace([item()]);
   let fetched = false;
   const result = await deliverClipperLocalNewsToMetricool({
-    env: { METRICOOL_USER_TOKEN: "real-token", METRICOOL_USER_ID: "123" },
+    env: { METRICOOL_USER_TOKEN: "real-token", METRICOOL_USER_ID: "123", CLIPPERS_LOCAL_NEWS_SENDER_ENABLED: "true" },
     workspaceDir: dir,
     fetch: async () => { fetched = true; throw new Error("disabled X must not reach Metricool"); },
   });
@@ -1503,4 +1503,27 @@ test("an ambiguous timed-out Metricool POST is not retried in the same cycle", a
   assert.equal(result.failed, 1);
   assert.equal(calls, 1);
   await assert.rejects(access(path.join(dir, "metricool-delivery-ledger.json.lock")), /ENOENT/);
+});
+
+test("gaming destinations are excluded from legacy news even with matching aliases and explicit overrides", async () => {
+  const dir = await workspace([item(), item({ id: "queue-2", eventId: "event-2", lane: "ny-news" })]);
+  const options = {
+    env: { ...credentials, METRICOOL_MIAMI_NEWS_BLOG_ID: "6591612", METRICOOL_NY_NEWS_BLOG_ID: "6595747" },
+    workspaceDir: dir,
+    now: fixedNow,
+    fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+      assert.notEqual(init?.method, "POST", "protected legacy routing must never send a news post");
+      assert.equal(new URL(String(input)).pathname, "/api/admin/simpleProfiles");
+      return Response.json({ profiles: [
+        { blogId: "6591612", label: "ynb4b6r6", networks: ["twitter", "facebook"] },
+        { blogId: "6595747", label: "New York News", networks: ["twitter", "facebook"] },
+      ] });
+    },
+  };
+  const status = await getClipperLocalNewsMetricoolReadiness(options);
+  assert.equal(status.status, "blocked");
+  assert.ok(status.targets.every(target => !target.ready));
+  const result = await deliverClipperLocalNewsToMetricool(options);
+  assert.equal(result.scheduled, 0);
+  assert.deepEqual(result.blockedLanes.sort(), ["miami-news", "ny-news"]);
 });

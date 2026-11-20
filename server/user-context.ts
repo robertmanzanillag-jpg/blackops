@@ -154,7 +154,17 @@ export function resolveRequestApiPath(req: Request): string {
 }
 
 export function isPublicApiRequest(req: Request): boolean {
-  return isPublicApiPath(resolveRequestApiPath(req));
+  const path = resolveRequestApiPath(req);
+  // This exact POST still requires the existing device bearer in its handler.
+  // No wildcard, browser read, alternate verb or query gains session bypass.
+  if (path === "/api/blackroom-agent/clippers-orchestra") {
+    return req.method === "POST" && req.originalUrl === path && Object.keys(req.query || {}).length === 0;
+  }
+  // KONG Mirror Lab reports: the handler requires the HMAC signature and a fresh timestamp.
+  if (path === "/api/integrations/kong/mirror-reports") {
+    return req.method === "POST" && req.originalUrl === path && Object.keys(req.query || {}).length === 0;
+  }
+  return isPublicApiPath(path);
 }
 
 /**

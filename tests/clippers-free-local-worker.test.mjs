@@ -353,3 +353,66 @@ test("reports an honest partial outcome while delivering the strong clips that p
   assert.equal(result.renderingReport.summary.missingAgainstTarget, 3);
   assert.equal(calls.some((call) => call.includes("clippers:streamer-growth-ceo")), true);
 });
+
+test("retries a transient macOS selected-file read without releasing a partial environment", async () => {
+  const projectRoot = await mkdtemp(path.join(os.tmpdir(), "clippers-config-retry-"));
+  let reads = 0;
+  let children = 0;
+  const result = await runClipperFreeLocalWorker({
+    projectRoot,
+    env: { METRICOOL_USER_TOKEN: "" },
+    loadEnvironment(_root, env) {
+      reads++;
+      assert.equal(env.METRICOOL_USER_TOKEN, "");
+      if (reads < 3) {
+        env.METRICOOL_USER_TOKEN = "fixture-uncommitted";
+        throw Object.assign(new Error("must not appear in report"), { code: "Unknown system error -11", errno: -11, syscall: "read" });
+      }
+      return [];
+    },
+    run() { children++; return { command: "mock", status: 1 }; },
+  });
+  assert.equal(reads, 3);
+  assert.ok(children > 0);
+  assert.doesNotMatch(JSON.stringify(result), /fixture-uncommitted|must not appear/);
+});
+
+test("persistent macOS configuration read failure produces a fresh blocked report and starts no children", async () => {
+  const projectRoot = await mkdtemp(path.join(os.tmpdir(), "clippers-config-blocked-"));
+  let reads = 0;
+  const result = await runClipperFreeLocalWorker({
+    projectRoot,
+    loadEnvironment() {
+      reads++;
+      throw Object.assign(new Error("do not expose the private file"), { errno: -11, syscall: "read" });
+    },
+    run() { assert.fail("configuration failure must prevent all child work"); },
+  });
+  assert.equal(reads, 3);
+  assert.equal(result.status, "blocked");
+  assert.equal(result.failedStage, "configuration");
+  assert.deepEqual(result.configurationBlockers, ["selected_environment_temporarily_unreadable"]);
+  assert.match(result.finishedAt, /^\d{4}-/);
+  assert.doesNotMatch(await readFile(result.reportPath, "utf8"), /private file/);
+});
+
+test("selected environment still chooses the workspace and child settings before acquiring the lock", async () => {
+  const projectRoot = await mkdtemp(path.join(os.tmpdir(), "clippers-config-workspace-"));
+  const workspaceRoot = path.join(projectRoot, "selected-workspace");
+  let childEnv;
+  const result = await runClipperFreeLocalWorker({
+    projectRoot, env: { CLIPPERS_WORKSPACE_ROOT: "" },
+    loadEnvironment(_root, env) {
+      env.CLIPPERS_WORKSPACE_ROOT = workspaceRoot;
+      env.CLIPPERS_TARGET_DAILY_CLIPS = "3";
+      return [".env.local"];
+    },
+    run(_command, _args, options) {
+      childEnv = options.env;
+      return { command: "mock", status: 1 };
+    },
+  });
+  assert.ok(result.reportPath.startsWith(workspaceRoot + path.sep));
+  assert.equal(childEnv.CLIPPERS_WORKSPACE_ROOT, workspaceRoot);
+  assert.equal(childEnv.CLIPPERS_TARGET_DAILY_CLIPS, "3");
+});

@@ -1,3 +1,4 @@
+import {holdUnpricedGeminiClient} from "./factory-api-sdk";
 import type { GoogleGenAI } from "@google/genai";
 import { hasRealValue } from "./ceo-doctor-cli";
 
@@ -8,13 +9,13 @@ export async function getGeminiClient(): Promise<GoogleGenAI> {
   }
 
   const { GoogleGenAI } = await import("@google/genai");
-  return new GoogleGenAI({
+  return holdUnpricedGeminiClient(new GoogleGenAI({
     apiKey,
     httpOptions: {
       apiVersion: "",
       baseUrl: process.env.AI_INTEGRATIONS_GEMINI_BASE_URL,
     },
-  });
+  }));
 }
 
 export function getGeminiChatModel(options: { hasImage?: boolean } = {}): string {

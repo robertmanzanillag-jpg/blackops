@@ -4,6 +4,7 @@ import type {FactoryJob} from "./software-factory-store";
 import {proposalEvidenceGate,type FactoryProject} from "./software-factory";
 import type {FactoryPipelineState} from "./software-factory-pipeline";
 import type {FactoryOrderProposal} from "../shared/software-factory-view";
+import { blackopsApplicationName } from "./agent-council-store";
 const hash=(value:unknown)=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const ownerHash=(owner:string)=>createHash("sha256").update(owner).digest("hex");
 const safeId=(value:unknown):value is string=>typeof value==="string"&&/^[a-zA-Z0-9:_-]{1,200}$/.test(value);
@@ -71,6 +72,6 @@ export async function readFactoryOrderProposals(options:{owner:string;jobs:Facto
 let recoveryPool:import("./agent-council-store").CouncilPool|undefined;
 export async function readFactoryRecoveredBuild(ownerKey:string,failedId:string,successorId:string){
  if((process.env.SOFTWARE_FACTORY_STORAGE_BACKEND||"postgres")!=="postgres"||process.env.SOFTWARE_FACTORY_STORE_MODULE)return undefined;
- if(!recoveryPool){const {Pool}=await import("pg"),{resolveDatabaseConnectionString}=await import("./database-url");recoveryPool=new Pool({connectionString:resolveDatabaseConnectionString(),max:1,allowExitOnIdle:true,connectionTimeoutMillis:5000,statement_timeout:5000}) as unknown as import("./agent-council-store").CouncilPool;}
+ if(!recoveryPool){const {Pool}=await import("pg"),{resolveDatabaseConnectionString}=await import("./database-url");recoveryPool=new Pool({connectionString:resolveDatabaseConnectionString(),max:1,allowExitOnIdle:true,connectionTimeoutMillis:5000,statement_timeout:5000,application_name:blackopsApplicationName("factory-evidence")}) as unknown as import("./agent-council-store").CouncilPool;}
  const {loadFailedBuildRecovery}=await import("./software-factory-build-recovery");return loadFailedBuildRecovery(recoveryPool,ownerKey,failedId,successorId);
 }

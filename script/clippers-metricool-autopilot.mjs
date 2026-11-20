@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { mkdir, open, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { createPortfolioMetricool } from "./clippers-portfolio-metricool.mjs";
+import { createMacLedgerGuard, macLedgerEnv } from "./clippers-mac-ledger-guard.mjs";
 
 const METRICOOL_MCP_URL = "https://ai.metricool.com/mcp";
 const TIMEZONE = "America/New_York";
@@ -447,6 +449,14 @@ export async function runMetricoolAutopilot(options = {}) {
     dailyLimit: targetDailyClips,
   });
   let scheduleIndex = 0;
+  let guard = options.ledgerGuard || null;
+  const ledgerGuard = () => {
+    if (guard) return guard;
+    let metricool = null;
+    try { metricool = createPortfolioMetricool({ token, userId, fetcher }); } catch { /* guard fails closed */ }
+    guard = createMacLedgerGuard({ env: macLedgerEnv(env), workspaceRoot, metricool });
+    return guard;
+  };
 
   for (const candidate of candidates) {
     if (scheduleIndex >= schedule.length) break;
@@ -531,6 +541,17 @@ export async function runMetricoolAutopilot(options = {}) {
       createdAt: new Date().toISOString(),
       paidSpendAllowed: false,
     };
+    // Shared cross-account ledger (same as the cloud publisher): one clip -> one account, fail closed.
+    const reservation = await ledgerGuard().reserve(
+      { brandId: blogId, network: "tiktok", account: validation.account },
+      { ...item, id: item.itemId, caption: validation.caption, mediaSha256: mediaReceipt.sha256,
+        scheduledAt: new Date(zonedDateTime(publicationDateTime)).toISOString() },
+    );
+    if (!reservation.ok) {
+      results.push({ itemId: item.itemId, status: "blocked", blockers: [`cross_account_ledger:${reservation.reason}`] });
+      continue;
+    }
+    receiptBase.ledgerEvidence = reservation.evidence;
     let receipt;
     try {
       await callMetricoolMcp(fetcher, token, {

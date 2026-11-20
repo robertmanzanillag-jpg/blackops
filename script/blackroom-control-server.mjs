@@ -1,6 +1,7 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import http from "node:http";
+import { createClippersOrchestraRelay, clippersOrchestraRemoteEligibility } from "./clippers-orchestra-relay.mjs";
 import { startOrganicPeerScout } from "./organic-peer-scout.mjs";
 import { mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -27,6 +28,10 @@ let automaticAnalyticsStatus = { running: false, lastCheckedAt: null, lastImport
 const csvExportDir = path.resolve(process.env.BLACKROOM_METRICOOL_EXPORT_DIR || path.join(homedir(), "Downloads"));
 const remoteUrl = String(process.env.BLACKROOM_REMOTE_CONTROL_URL || "https://ROBPLANNER.replit.app").replace(/\/$/, "");
 const remoteToken = String(process.env.BLACKROOM_REMOTE_CONTROL_TOKEN || "").trim();
+const clippersOrchestraRemoteStatus=clippersOrchestraRemoteEligibility(remoteUrl,remoteToken.length>=32);
+const clippersOrchestraRemoteAllowed=clippersOrchestraRemoteStatus.allowed;
+const clippersOrchestraRelay=createClippersOrchestraRelay({workspaceRoot:path.resolve(process.env.CLIPPERS_WORKSPACE_ROOT || (process.platform==='darwin'
+  ? path.join(homedir(),'.local/share/blackops/clippers-workspace') : path.join(projectDir,'clippers_workspace')))});
 const remotePollMs = Math.max(10_000, Number(process.env.BLACKROOM_REMOTE_POLL_MS || 15_000));
 const csvScanMs = Math.max(60_000, Number(process.env.BLACKROOM_METRICOOL_CSV_SCAN_MS || 5 * 60_000));
 const controlToken = randomBytes(32).toString("hex");
@@ -175,6 +180,7 @@ async function remoteRequest(method, body, pathname = "/api/blackroom-agent/remo
     },
     body: body ? JSON.stringify(body) : undefined,
     signal: AbortSignal.timeout(10_000),
+    ...(body?.clippersOrchestra?{redirect:'error'}:{}),
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -285,14 +291,17 @@ async function syncRemoteControl() {
   try {
     queue ||= await serializedCommand("status");
     queue = await queueWithDeliveryCounts(queue);
-    await remoteRequest("POST", {
+    const clippersEnvelope=clippersOrchestraRelay.getEnvelope();
+    const heartbeatReceipt=await remoteRequest("POST", {
       deviceId: "blackroom-mac",
       queue,
       worker: await workerState(false),
       publicationExperiments: await publicationExperiments(),
       lastError,
       appliedGeneration: Math.max(0, lastAppliedGeneration),
+      ...(clippersEnvelope?{clippersOrchestra:clippersEnvelope}:{}),
     });
+    if(clippersEnvelope&&heartbeatReceipt?.clippersOrchestra?.accepted===true)clippersOrchestraRelay.acknowledge(clippersEnvelope.nonce);
   } catch (error) {
     console.error("[blackroom-control] remote heartbeat failed:", error instanceof Error ? error.message : error);
   }
@@ -369,6 +378,8 @@ setInterval(recoverWorker, 60_000).unref();
 setTimeout(() => void syncAutomaticAnalytics(), 2_000);
 setInterval(() => void syncAutomaticAnalytics(), 60_000).unref();
 if (remoteToken) {
+  console.info('[clippers-orchestra] origin-check', JSON.stringify(clippersOrchestraRemoteStatus));
+  if(clippersOrchestraRemoteAllowed)clippersOrchestraRelay.start();
   const remoteLoop = async () => {
     await syncMetricoolCsvExports();
     await syncRemoteControl();

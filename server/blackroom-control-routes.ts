@@ -239,6 +239,24 @@ export function hasValidBlackRoomRemoteToken(authorization: string | undefined, 
   return suppliedBuffer.length === expectedBuffer.length && timingSafeEqual(suppliedBuffer, expectedBuffer);
 }
 
+// The platform bearer is consumed by Replit's private-deployment shield. Only
+// this dedicated endpoint accepts the same existing device token in its own header.
+export function hasValidClippersDeviceToken(req: Request, configuredToken = process.env.BLACKROOM_REMOTE_CONTROL_TOKEN): boolean {
+  const headers = req.headers || {};
+  const raw = req.rawHeaders || [];
+  const count = (name: string) => raw.filter((_value, index) => index % 2 === 0 && String(raw[index]).toLowerCase() === name).length;
+  const authorization = headers.authorization;
+  if (count("authorization") > 1 || (authorization !== undefined &&
+      (typeof authorization !== "string" || !authorization || /[,\r\n]/.test(authorization)))) return false;
+  const present = Object.hasOwn(headers, "x-clippers-device-token") || count("x-clippers-device-token") > 0;
+  if (!present) return hasValidBlackRoomRemoteToken(req.get("authorization"), configuredToken);
+  const device = headers["x-clippers-device-token"];
+  if (count("x-clippers-device-token") > 1 || typeof device !== "string" ||
+      device.length < 32 || device.length > 8192 || /[\s,]/.test(device)) return false;
+  // An invalid explicit device header must never fall back to a valid app bearer.
+  return hasValidBlackRoomRemoteToken(device, configuredToken);
+}
+
 export function summarizeBlackRoomAnalyticsImports(state: BlackRoomRemoteControlState) {
   return Object.fromEntries(Object.entries(state.analyticsImports || {}).map(([network, imported]) => [
     network,
@@ -456,6 +474,28 @@ export function registerBlackRoomControlRoutes(app: Express): void {
     try { res.json({ control: remoteView(await readBlackRoomRemoteControl()) }); }
     catch (error: any) { res.status(500).json({ error: error.message || "Failed to read remote command" }); }
   });
+  app.post("/api/blackroom-agent/clippers-orchestra", async (req, res) => {
+    if (!hasValidClippersDeviceToken(req)) return res.status(401).set("Cache-Control", "private, no-store").json({ error: "Invalid BlackRoom device token" });
+    // A separate exact route is safe against rollback: old servers reject it,
+    // whereas sending a new discriminator to the legacy heartbeat could mutate it.
+    const body = req.body;
+    res.set("Cache-Control", "private, no-store");
+    if (!req.is("application/json") || !body || typeof body !== "object" || req.originalUrl !== "/api/blackroom-agent/clippers-orchestra" || Object.keys(req.query || {}).length ||
+        Array.isArray(body) || Object.keys(body).sort().join(",") !== "clippersOrchestra,kind" || body.kind !== "clippers-orchestra") {
+      return res.status(400).json({ clippersOrchestra: { accepted: false, code: "CLIPPERS_ORCHESTRA_PROTOCOL_INVALID" } });
+    }
+    let bytes: number;
+    try { bytes = Buffer.isBuffer(req.rawBody) ? req.rawBody.length : Buffer.byteLength(JSON.stringify(body)); }
+    catch { return res.status(400).json({ clippersOrchestra: { accepted: false, code: "CLIPPERS_ORCHESTRA_PROTOCOL_INVALID" } }); }
+    if (bytes > 262144) return res.status(413).json({ clippersOrchestra: { accepted: false, code: "CLIPPERS_ORCHESTRA_TOO_LARGE" } });
+    try {
+      const telemetry = await import("./clippers-orchestra-state");
+      if (!telemetry.parseClippersEnvelope(body.clippersOrchestra)) return res.status(400).json({ clippersOrchestra: { accepted: false, code: "CLIPPERS_ORCHESTRA_INVALID" } });
+      return res.json({ clippersOrchestra: await telemetry.ingestOptionalClippersTelemetry(body.clippersOrchestra) });
+    } catch {
+      return res.status(503).json({ clippersOrchestra: { accepted: false, code: "CLIPPERS_ORCHESTRA_INGEST_UNAVAILABLE" } });
+    }
+  });
   app.post("/api/blackroom-agent/remote", async (req, res) => {
     if (!hasValidBlackRoomRemoteToken(req.get("authorization"))) return res.status(401).json({ error: "Invalid BlackRoom device token" });
     try {
@@ -472,7 +512,14 @@ export function registerBlackRoomControlRoutes(app: Express): void {
             .forEach((experiment: any) => recordBlackRoomPublicationExperiment(current, experiment));
         }
       });
-      res.json({ control: remoteView(remote) });
+      // Scoped Clippers telemetry shares this already-authorized device heartbeat,
+      // but has its own strict schema/store and never enters BlackRoom analytics.
+      let clippersOrchestra:unknown;
+      if(req.body?.clippersOrchestra!==undefined){
+        try{clippersOrchestra=await (await import('./clippers-orchestra-state')).ingestOptionalClippersTelemetry(req.body.clippersOrchestra);}
+        catch{clippersOrchestra={accepted:false,code:'CLIPPERS_ORCHESTRA_INGEST_UNAVAILABLE'};}
+      }
+      res.json({ control: remoteView(remote), ...(clippersOrchestra?{clippersOrchestra}:{}) });
     } catch (error: any) { res.status(500).json({ error: error.message || "Failed to record device heartbeat" }); }
   });
   app.put("/api/blackroom-agent/media/:reservationId", async (req, res) => {

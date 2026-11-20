@@ -33,6 +33,7 @@ export function registerOfficeRoutes(app: Express, dependencies: {
   analyzeRadio?: typeof import("./radio-agent").analyzeRadioEvents;
   loadPullRequest?: typeof import("./office-github").loadOfficePullRequest;
   now?: () => number;
+  verificationReader?: () => Promise<import("../shared/office-verification").OfficeVerification>;
 } = {}) {
   const runtime = dependencies.runtime || officeRuntime;
   const workerDisabled = () => process.env.OFFICE_WORKER_ENABLED === "false";
@@ -43,6 +44,18 @@ export function registerOfficeRoutes(app: Express, dependencies: {
   let snapshotPending: Promise<OfficeKongAuditResult> | undefined;
   let retrySnapshotAt = 0;
   let snapshotFailureCode = "UNAVAILABLE";
+  app.get("/api/agents-office/verification", async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    if (!owner(req, res)) return;
+    try {
+      const report = dependencies.verificationReader ? await dependencies.verificationReader() : await (async () => {
+        const { getAgentCouncil } = await import("./agent-council");
+        const { buildOfficeVerification } = await import("./office-verification");
+        return buildOfficeVerification(await getAgentCouncil().load(), getSystemUserId(), now());
+      })();
+      return res.json(report);
+    } catch { return res.status(503).json({ error: "No se pudo verificar la evidencia de mejora. No se iniciaron nuevas tareas." }); }
+  });
   app.post("/api/agents-office/contact-action", async (req, res) => {
     const userId = owner(req, res);
     if (!userId) return;

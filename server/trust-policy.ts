@@ -1,3 +1,4 @@
+import { assertCeoActionActive } from "./ceo-domain-policy";
 import { storage } from "./storage";
 import type {
   AuditLog,
@@ -44,6 +45,7 @@ const DEFAULT_SCOPE_PERMISSIONS: Record<TrustScope, PermissionLevel> = {
 };
 
 const ACTION_RISK: Record<string, RiskLevel> = {
+  kong_mirror_improvement: "high",
   "calendar.create_event": "medium",
   "calendar.modify_radio": "high",
   "finance.create_investment": "high",
@@ -104,6 +106,7 @@ export async function writeAuditLog(log: InsertAuditLog): Promise<AuditLog> {
 }
 
 export async function createPendingActionForApproval(request: TrustActionRequest): Promise<PendingAction> {
+  assertCeoActionActive(request);
   const scope = request.scope || getActionScope(request.actionType);
   const riskLevel = getActionRisk(request.actionType);
   const permissionLevelRequired = await getEffectivePermission(request.userId, scope);

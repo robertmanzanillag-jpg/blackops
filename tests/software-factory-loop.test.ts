@@ -18,7 +18,7 @@ function setup(clock:Clock, jobs:FactoryJob[]=[]) {
  const store={expire:async()=>{calls.push("expire");return 0;},heartbeat:async()=>{calls.push("heartbeat");},claim:async()=>{calls.push("claim");return jobs.shift();},idleState:async()=>{calls.push("idleState");return {kind:"idle"};},complete:async()=>{calls.push("complete");return true;}};
  return {calls,store,jobs};
 }
-function job(clock:Clock,kind:FactoryJob["kind"]="build"):FactoryJob{return {id:kind,key:kind,kind,projectId:"pilot",ownerKey:"owner",month:"2026-11",status:"running",payload:{},headSha:"a".repeat(40),reservedCents:10,recoveryCents:0,createdAt:new Date(clock.time).toISOString(),leaseExpiresAt:new Date(clock.time+60000).toISOString()};}
+function job(clock:Clock,kind:FactoryJob["kind"]="build"):FactoryJob{return {id:kind,key:kind,kind,projectId:"pilot",ownerKey:"owner",month:"2026-11",status:"running",fence:"00000000-0000-4000-8000-000000000001",payload:{},headSha:"a".repeat(40),reservedCents:10,recoveryCents:0,createdAt:new Date(clock.time).toISOString(),leaseExpiresAt:new Date(clock.time+60000).toISOString()};}
 test("confirmed idle maintains process presence while claims remain hourly and stop clears timers",async()=>{
  const clock=new Clock(),f=setup(clock),shutdown=new AbortController();
  const worker=createSoftwareFactoryWorker({store:f.store as any,now:()=>new Date(clock.time)});

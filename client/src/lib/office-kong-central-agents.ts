@@ -1,12 +1,12 @@
 import type { OfficeKongAgent } from "../../../server/office-kong";
 import type { OfficeCityAgent } from "./office-city-agents";
 
+// Only BlackOps-side seats that may also appear in KONG's snapshot. The old placeholder seats (KONG AI,
+// Promoters + Mesas, Venues, Kong Legal) were removed: their real agents (kong:kong_ai_chat,
+// kong:promoters_partnerships, kong:venue_deals, kong:legal_security_compliance) are desks built from
+// KONG's own snapshot in client/src/lib/kong-office-wing.ts, so the seats only duplicated them.
 export const OFFICE_KONG_CENTRAL_SEATS = [
   { id: "kong-videos", nativeName: "Videos Kong", name: "Videos Kong", job: "Edición y entrega de videos de Kong", aliases: ["kong-videos", "videos kong"] },
-  { id: "kong:KONG AI", nativeName: "KONG AI", name: "KONG AI", job: "IA de KONG", aliases: ["kong ai"] },
-  { id: "kong:Promoters + Mesas", nativeName: "Promoters + Mesas", name: "Promotores + Mesas", job: "Promotores y mesas", aliases: ["promoters + mesas", "promotores + mesas"] },
-  { id: "kong:Venues", nativeName: "Venues", name: "Venues", job: "Venues", aliases: ["venues"] },
-  { id: "kong:Kong Legal", nativeName: "Kong Legal", name: "Kong Legal", job: "Revisión legal de KONG", aliases: ["kong legal"] },
 ] as const;
 
 export type OfficeKongCentralSignalKind = "current" | "last-result" | "alert" | "unverified";

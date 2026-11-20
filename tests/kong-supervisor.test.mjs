@@ -1,33 +1,39 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { emptyKongSupervision, parseKongSupervision, reviewKongReadiness } from '../shared/kong-supervisor.ts';
-const now = Date.parse('2026-11-05T00:00:00Z');
-test('missing backends remain blocked even if callers invent a working status', () => {
-  const result = reviewKongReadiness(emptyKongSupervision(), { 'kong:KONG AI': { state: 'working' } }, now);
-  assert.equal(result.records.length, 5);
-  assert.ok(result.records.every(record => record.result === 'blocked'));
+import express from 'express';
+import { parseLegacyKongSupervision } from '../shared/kong-supervisor.ts';
+import { registerKongSupervisorRoutes } from '../server/kong-supervisor-routes.ts';
+
+const at = new Date(Date.parse('2026-11-05T00:00:00Z')).toISOString();
+
+test('the retired supervisor history parses read-only; corrupt or missing state is an empty archive', () => {
+  assert.deepEqual(parseLegacyKongSupervision(undefined), { archived: true, lastRunAt: null, records: [], messages: [] });
+  const parsed = parseLegacyKongSupervision({ version: 1, lastRunAt: at,
+    records: [null, {}, { agentId: 'outsider', task: 'review-readiness', result: 'completed', reason: 'yes', checkedAt: at },
+      { agentId: 'kong-videos', task: 'review-readiness', result: 'completed', reason: 'ok', checkedAt: at }],
+    messages: [{ id: 'm1', requestId: 'request-0001', agentId: 'kong:Venues', at, role: 'user', text: 'hola' }, { id: 'x', agentId: 'nobody' }] });
+  assert.equal(parsed.records.length, 1);
+  assert.equal(parsed.messages.length, 1);
+  assert.equal(parsed.lastRunAt, at);
 });
-test('only a fresh supplied video status can complete the readiness task', () => {
-  const result = reviewKongReadiness(emptyKongSupervision(), { 'kong-videos': { state: 'working' } }, now);
-  assert.equal(result.records[0].result, 'completed');
-  assert.match(result.records[0].reason, /No se produjo ni publico/);
-  assert.ok(result.records.slice(1).every(record => record.result === 'blocked'));
-});
-test('missing content is a dependency, not an agent failure; reader errors are failures', () => {
-  for (const state of ['needs-setup', 'checking', 'offline', 'new-unknown-state']) assert.equal(reviewKongReadiness(emptyKongSupervision(), { 'kong-videos': { state } }, now).records[0].result, 'blocked');
-  for (const state of ['error']) assert.equal(reviewKongReadiness(emptyKongSupervision(), { 'kong-videos': { state } }, now).records[0].result, 'failed');
-});
-test('history is bounded and input state is unchanged', () => {
-  const before = emptyKongSupervision();
-  let state = before;
-  for (let n = 0; n < 50; n++) state = reviewKongReadiness(state, {}, now + n);
-  assert.equal(state.records.length, 50);
-  assert.deepEqual(before, emptyKongSupervision());
-  assert.deepEqual(parseKongSupervision(JSON.parse(JSON.stringify(state))), state);
-});
-test('old council state and corrupt records recover without claiming work', () => {
-  assert.deepEqual(parseKongSupervision(undefined), emptyKongSupervision());
-  const parsed = parseKongSupervision({ version: 1, records: [null, {}, { agentId: 'outsider', task: 'review-readiness', result: 'completed', reason: 'yes', checkedAt: new Date(now).toISOString() }] });
-  assert.deepEqual(parsed.records, []);
-  assert.equal(parsed.lastRunAt, null);
+
+test('the old chat endpoint is retired (410 with the agent chat path) and the history stays owner-only', async t => {
+  const app = express(); app.use(express.json());
+  registerKongSupervisorRoutes(app, async () => parseLegacyKongSupervision({ version: 1, records: [], messages: [{ id: 'm1', requestId: 'request-0001', agentId: 'kong-supervisor', at, role: 'user', text: 'privado' }] }),
+    { requestUserId: req => req.headers['x-test-user'] || null, ownerUserId: () => 'owner' });
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise(resolve => server.once('listening', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const call = (method, path, user) => fetch(base + path, { method, headers: { 'content-type': 'application/json', ...(user ? { 'x-test-user': user } : {}) }, ...(method === 'POST' ? { body: '{}' } : {}) });
+  assert.equal((await call('GET', '/api/kong-supervisor/state')).status, 401);
+  assert.equal((await call('GET', '/api/kong-supervisor/state', 'member')).status, 403);
+  const owner = await (await call('GET', '/api/kong-supervisor/state', 'owner')).json();
+  assert.equal(owner.archived, true);
+  assert.equal(owner.messages[0].text, 'privado');
+  assert.match(owner.chatPath, /agent-chat/);
+  assert.equal((await call('POST', '/api/kong-supervisor/chat', 'member')).status, 403);
+  const retired = await call('POST', '/api/kong-supervisor/chat', 'owner');
+  assert.equal(retired.status, 410);
+  assert.match((await retired.json()).chatPath, /agent-chat/);
 });

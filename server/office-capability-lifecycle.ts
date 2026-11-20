@@ -20,14 +20,17 @@ export function capabilityPolicyLife(state:CapabilityTrainingState,policy:Policy
   return replayCapabilityPolicyLife(policy.version,policy.generation,evidence);
 }
 
-export function capabilityLifecycleSummary(state:CapabilityTrainingState,currentPrompt:string,grade:Grade,work?:RoleWorkState,generations?:Record<string,number>){
+export function capabilityLifecycleSummary(state:CapabilityTrainingState,currentPrompt:string,grade:Grade,work?:RoleWorkState,generations?:Record<string,number>,
+  /** Jobs the trainer deliberately skips (inputs unchanged since the last verified pass): reported as skipped, not pending. */
+  skipped?:(job:RoleWorkState["jobs"][number])=>boolean){
   return state.policies.map(policy=>{
     const life=capabilityPolicyLife(state,policy,currentPrompt,grade);
     const current=policy.promptVersion===currentPrompt;
     // The trainer's shared admission lane is global, including uncertain older
     // generations. Do not advertise a different role as presently admissible.
     const blocking=state.runs.some(r=>r.status==="running"||r.status==="unknown");
-    const pending=(work?.jobs||[]).filter(j=>j.role===policy.role&&j.generation===policy.generation&&["completed","blocked"].includes(j.status)&&!state.runs.some(r=>r.kind==="production"&&r.promptVersion===currentPrompt&&r.task.id===j.id)).map(j=>j.id);
+    const unconsumed=(work?.jobs||[]).filter(j=>j.role===policy.role&&j.generation===policy.generation&&["completed","blocked"].includes(j.status)&&!state.runs.some(r=>r.kind==="production"&&r.promptVersion===currentPrompt&&r.task.id===j.id));
+    const skippedIds=unconsumed.filter(j=>skipped?.(j)).map(j=>j.id),pending=unconsumed.filter(j=>!skippedIds.includes(j.id)).map(j=>j.id);
     const siblings=state.policies.filter(p=>p.role===policy.role&&p.generation===policy.generation&&p.promptVersion===currentPrompt);
     const anyRunnable=siblings.some(p=>["active","probation"].includes(p.status)&&!capabilityPolicyLife(state,p,currentPrompt,grade).retiredAt);
     const preparing=siblings.some(p=>p.status==="candidate");
@@ -39,7 +42,7 @@ export function capabilityLifecycleSummary(state:CapabilityTrainingState,current
       localAdmissionEligible,currentGenerationVerified:generations!==undefined,
       currentGenerationMatches:generations?generations[policy.role]===policy.generation:undefined,
       productionAdmissible:localAdmissionEligible&&generations?.[policy.role]===policy.generation,
-      pendingSourceJobIds:work?pending:undefined,queueEvidenceAvailable:Boolean(work),transferredFromPolicyVersion:policy.parentVersion,
+      pendingSourceJobIds:work?pending:undefined,...(work&&skipped?{skippedSourceJobIds:skippedIds}:{}),queueEvidenceAvailable:Boolean(work),transferredFromPolicyVersion:policy.parentVersion,
       transferScope:"Only unconsumed saved-audit triage tasks; no business orders or full career transfer",
       historyRetention:"append_only_no_pruning",fullRoleReplacement:false,
     };

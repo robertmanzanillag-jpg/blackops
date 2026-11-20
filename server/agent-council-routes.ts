@@ -1,13 +1,12 @@
 import type { Express } from "express";
 import { OrderEvidenceError, getAgentCouncil, isAgentCouncilEnabled, setAgentCouncilUser } from "./agent-council";
 import { getCurrentUserId, getSystemUserId } from "./user-context";
-import { agentProbes, summarizeProbe } from "@shared/agent-live-status";
-import { createKongSupervisorConversation } from "./kong-supervisor-conversation";
 import { registerKongSupervisorRoutes } from "./kong-supervisor-routes";
 import {capabilityTrainingSummary,capabilityRunSummary} from "./office-capability-training";
 import { createHash } from "node:crypto";
 import { factoryAgentForStage, type FactoryJobRow } from "@shared/factory-office-agents";
 import { redactChatActivity } from "@shared/agent-chat-routing";
+import { isKongSnapshotAgent } from "@shared/agent-company";
 
 const FACTORY_LIVE_CACHE_MS = 30_000;
 const FACTORY_LIVE_TIMEOUT_MS = 3_000;
@@ -57,19 +56,8 @@ export function registerAgentCouncilRoutes(app: Express, dependencies: {
     const userId = requestUserId(req);
     return userId !== ownerUserId() && await isPartner(userId);
   };
-  // Supervisor KONG (PR #315): owner-only chat and read-only readiness review.
-  // It reads the Kong video status; it never edits, publishes or runs commercial orders.
-  const kongConversation = createKongSupervisorConversation({
-    now: () => Date.now(),
-    commit: (change) => councilInstance().updateKongSupervision(change),
-    read: () => councilInstance().readKongSupervision(),
-    readVideoStatus: async () => {
-      const { getPromoVideoStatus } = await import("./promo-video-agent");
-      const body = await getPromoVideoStatus(ownerUserId());
-      return summarizeProbe(agentProbes["kong-videos"], { ok: true, status: 200, body: JSON.parse(JSON.stringify(body ?? null)) });
-    },
-  });
-  registerKongSupervisorRoutes(app, kongConversation, {
+  // Retired Supervisor KONG (PR #315): its stored conversation stays readable for the owner; it runs nothing.
+  registerKongSupervisorRoutes(app, () => councilInstance().readLegacyKongSupervision(), {
     requestUserId: (req) => {
       try {
         return requestUserId(req);
@@ -98,6 +86,10 @@ export function registerAgentCouncilRoutes(app: Express, dependencies: {
         view.kongRead = null;
         view.kongCollaboration = { verified: false, observedAt: null, totalFindings: 0, exchanges: [] };
         view.roleWorkToday = [];
+        // KONG careers share the main ledger but stay owner-only: no KONG vida rows, automejora or lessons.
+        view.vitality = view.vitality.filter(row => !isKongSnapshotAgent(row.agentId));
+        view.proposals = view.proposals.filter(proposal => !isKongSnapshotAgent(proposal.owner));
+        view.lessons = view.lessons.filter(lesson => !isKongSnapshotAgent(lesson.subject));
         // Owner-only per-agent chat: orders, hand-off events and hand-off memory never reach other users.
         view.company = redactChatActivity(view.company);
       }

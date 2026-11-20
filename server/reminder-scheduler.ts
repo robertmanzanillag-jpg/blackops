@@ -7,6 +7,7 @@ import { getPortfolioNews, type NewsItem } from "./finance";
 import { getSystemUserId } from "./user-context";
 import { generateCeoMorningBrief } from "./ceo-briefing";
 import { runDropshippingDailyOperatingCycle, sendDropshippingDailyReport } from "./dropshipping-ceo";
+import { ceoDomainStatus } from "./ceo-domain-policy";
 import { getExistingAutomations, recordScheduledAutomationRun, type ScheduledAutomationRunOutcome } from "./automation-registry";
 import { generateRadioTemplatesForDate, type RadioTemplateRunResult } from "./radio-template-agent";
 import { hasRealValue } from "./ceo-doctor-cli";
@@ -711,6 +712,7 @@ export async function runRadioTemplateGenerationForUserWithDeps(
 }
 
 async function sendDropshippingCeoReports(cadence: "morning" | "evening"): Promise<void> {
+  if (ceoDomainStatus("dropshipping").paused) return;
   const userIds = await getScheduledNotificationUserIds();
   const automationKey = cadence === "morning" ? "dropshipping-ceo-morning-report" : "dropshipping-ceo-evening-report";
   const results = await Promise.all(userIds.map((userId) => runTrackedScheduledAutomation(
@@ -733,6 +735,7 @@ async function sendDropshippingCeoReports(cadence: "morning" | "evening"): Promi
 }
 
 async function runDropshippingCeoDailyCycle(): Promise<void> {
+  if (ceoDomainStatus("dropshipping").paused) return;
   const userIds = await getScheduledNotificationUserIds();
   const userId = userIds[0] || getSystemUserId();
   const result = await runTrackedScheduledAutomation(

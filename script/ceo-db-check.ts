@@ -10,7 +10,7 @@ import {
 import { hasRealValue } from "../server/ceo-doctor-cli";
 
 async function getExistingTables(databaseUrl: string): Promise<string[]> {
-  const pool = new Pool({ connectionString: databaseUrl });
+  const pool = new Pool({ connectionString: databaseUrl, application_name: "blackops-ceo-check:local" });
   try {
     const result = await pool.query<{ table_name: string }>(
       `

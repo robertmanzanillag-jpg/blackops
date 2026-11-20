@@ -1,10 +1,12 @@
 import type { Express, Request, Response } from "express";
-import { KongConversationInputError, type createKongSupervisorConversation } from "./kong-supervisor-conversation";
+import type { LegacyKongSupervisionArchive } from "../shared/kong-supervisor";
 
 export type KongSupervisorOwnerAuth = { requestUserId: (req: Request) => string | null; ownerUserId: () => string };
-// The council is a single-owner system. Require both session auth and an owner
-// match; another authenticated account must never read this conversation.
-export function registerKongSupervisorRoutes(app: Express, conversation: ReturnType<typeof createKongSupervisorConversation>, auth: KongSupervisorOwnerAuth) {
+/** Where KONG desks are chatted with now (server/agent-chat.ts -> KONG office-orders). */
+export const KONG_DESK_CHAT_PATH = "/api/agent-chat/:agentId/messages";
+// The retired "Supervisor KONG": its stored conversation stays readable for the owner only; it no
+// longer runs readiness reviews or answers messages. Another account must never read it.
+export function registerKongSupervisorRoutes(app: Express, readArchive: () => Promise<LegacyKongSupervisionArchive>, auth: KongSupervisorOwnerAuth) {
   const allow = (req: Request, res: Response) => {
     try {
       const userId = auth.requestUserId(req);
@@ -17,14 +19,11 @@ export function registerKongSupervisorRoutes(app: Express, conversation: ReturnT
     if (!allow(req, res)) return;
     try {
       res.set("Cache-Control", "no-store");
-      res.json(await conversation.view());
-    } catch { res.status(503).json({ error: "No se pudo leer el estado del supervisor." }); }
+      res.json({ ...(await readArchive()), chatPath: KONG_DESK_CHAT_PATH });
+    } catch { res.status(503).json({ error: "No se pudo leer el historial del supervisor." }); }
   });
-  app.post("/api/kong-supervisor/chat", async (req, res) => {
+  app.post("/api/kong-supervisor/chat", (req, res) => {
     if (!allow(req, res)) return;
-    try { res.json(await conversation.talk(req.body)); }
-    catch (error) {
-      res.status(error instanceof KongConversationInputError ? 400 : 503).json({ error: error instanceof KongConversationInputError ? error.message : "No se pudo guardar la conversacion. Intenta de nuevo." });
-    }
+    res.status(410).json({ error: "El Supervisor KONG se retiró. Habla con el puesto KONG desde la oficina (chat del agente).", chatPath: KONG_DESK_CHAT_PATH });
   });
 }

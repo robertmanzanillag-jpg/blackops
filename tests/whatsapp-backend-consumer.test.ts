@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createBackendHttpFixture } from "./fixtures/whatsapp-backend-http";
 import { buildKongOfficeWing } from "../client/src/lib/kong-office-wing";
-import { advanceKongCompany } from "../server/kong-company";
+import { advanceKongCareers } from "../server/kong-company";
 import { emptyCompanyState } from "../shared/agent-company";
 import { WHATSAPP_CAREER_ID as ID, type WhatsAppReaderEvidence } from "../shared/whatsapp-office-agent";
 
@@ -21,9 +21,9 @@ test("actual backend office HTTP projection feeds the consumer parser, desk and 
       assert.deepEqual(result.audit.evidence.whatsappReader,value??undefined);
       const desks=buildKongOfficeWing(result.audit.evidence,[],{},Date.now()).agents.filter(a=>a.id===ID);
       assert.equal(desks.length,1);assert.equal(desks[0].whatsappEvidence?.status,expected);
-      const scored=advanceKongCompany({company:emptyCompanyState(),evidenceAt:{},evidence:result.audit.evidence,now:Date.now()});
+      const scored=advanceKongCareers({company:emptyCompanyState(),evidenceAt:{},evidence:result.audit.evidence,now:Date.now()});
       assert.equal(scored.company.careers[ID]?.points,expected==="recent"?10:undefined);
-      const replay=advanceKongCompany({company:scored.company,evidenceAt:scored.evidenceAt,evidence:result.audit.evidence,now:Date.now()});
+      const replay=advanceKongCareers({company:scored.company,evidenceAt:scored.evidenceAt,evidence:result.audit.evidence,now:Date.now()});
       assert.deepEqual(replay.company.careers[ID],scored.company.careers[ID]);
     }
   }finally{await fixture.close();}

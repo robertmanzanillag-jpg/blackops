@@ -1,10 +1,11 @@
 import type {Express} from "express";
 import {getAuthenticatedCurrentUserId,getSystemUserId} from "./user-context";
 import {createHash} from "node:crypto";
+import { blackopsApplicationName } from "./agent-council-store";
 type HistoryJob={id:string;role:string;generation:number;status:string;startedAt:string;expiresAt:string;completedAt?:string;reason?:string;artifact?:{text:string;html?:string}};
 type BusinessHistory={jobs:HistoryJob[];capacity?:{reached:boolean;usedJobs:number;maxJobs:number};availability?:Array<{role:string;available:boolean;reason:string}>};
 let poolPromise:Promise<import("pg").Pool>|undefined;
-function historyPool(){return poolPromise??=(async()=>{const {Pool}=await import("pg");const {resolveDatabaseConnectionString}=await import("./database-url");return new Pool({connectionString:resolveDatabaseConnectionString(),max:1,allowExitOnIdle:true,connectionTimeoutMillis:5000,statement_timeout:10000});})();}
+function historyPool(){return poolPromise??=(async()=>{const {Pool}=await import("pg");const {resolveDatabaseConnectionString}=await import("./database-url");return new Pool({connectionString:resolveDatabaseConnectionString(),max:1,allowExitOnIdle:true,connectionTimeoutMillis:5000,statement_timeout:10000,application_name:blackopsApplicationName("office-history")});})();}
 export async function readOfficeDeliverableAvailability(pool:{query:(sql:string,params:any[])=>Promise<{rows:any[]}>},owner:string,roles:string[]){
  if(!owner.trim())throw Error("CAREER_OWNER_REQUIRED");
  const result=await pool.query("SELECT requested.role, state #> ARRAY['company','careers',requested.role,'generation'] AS generation, state #> ARRAY['company','careers',requested.role,'battery'] AS battery, state #> ARRAY['company','careers',requested.role,'inTrainingUntilGeneration'] AS training, state #> ARRAY['company','careers',requested.role,'scoreReconciliation'] AS reconciliation, COALESCE((state #> ARRAY['company','careers',requested.role]) ? 'scoreReconciliation',false) AS has_reconciliation, COALESCE((state #> ARRAY['company','careers',requested.role]) ? 'inTrainingUntilGeneration',false) AS has_training FROM agent_council_state CROSS JOIN unnest($2::text[]) AS requested(role) WHERE owner_key=$1",[createHash('sha256').update(owner).digest('hex'),roles]);

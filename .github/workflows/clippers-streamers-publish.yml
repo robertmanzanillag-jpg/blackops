@@ -1,0 +1,458 @@
+name: Clippers streamers publish (cloud)
+
+# Cloud download -> render -> Metricool for the streamer clip pages ($0 AI, no Mac).
+# Reads approved rows from pending_actions (via the discovery state), re-checks the clip policy at publish
+# time, downloads only the needed section (yt-dlp --impersonate chrome for YouTube), renders a <= 60 s
+# vertical edit with ffmpeg + the bundled font, stages it as a temporary release asset on this repo (deleted
+# after Metricool copies it) and schedules it through the existing Metricool adapter
+# (script/clippers-portfolio-metricool.mjs). See docs/clippers-streamer-pages.md.
+#
+# Off by default. Enable: repository variable CLIPPERS_STREAMER_CLOUD_PUBLISH_ENABLED = 'true'.
+# Kill switch: repository variable CLIPPERS_STREAMER_CLOUD_KILL_SWITCH = 'true' stops every later run (checked by
+# the job `if` and at script start). A run already in progress cannot see variable changes: cancel it in Actions.
+# Cadence: after each "Office worker (cloud)" run, gated to minute < 15 between 09:00 and 19:59 New York time;
+# the script also skips when its last run is < CLIPPERS_STREAMER_CLOUD_MIN_INTERVAL_MINUTES (default 180) old.
+# At most CLIPPERS_STREAMER_CLOUD_CLIPS_PER_RUN (default 4) clips per run (no new clip after 20 min). Account lanes
+# (default on): each clip goes to ONE account; 10/12/16/18/20 ET (weekends -30 %), 6-8/day once an account's weekly
+# median passes 1k; Metricool drafts until then. Word-by-word captions via a cached whisper.cpp (base model; es for
+# Clipwave Miami, en otherwise; only the 15-35 s cut is transcribed); repository variable CLIPPERS_WHISPER_ENABLED=false turns it off. Lanes off: legacy 5/day fan-out, slots 11:00-21:00. Explicit dispatches bypass the clock gate and the interval.
+
+on:
+  workflow_run:
+    workflows: ["Office worker (cloud)"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Render only (no upload, no Metricool); rendered clips are kept as a 1-day artifact"
+        type: boolean
+        default: false
+      growth_only:
+        description: "Run only the per-account growth loop (read-only Metricool analytics + best time)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  CLIPPERS_DRY_RUN_REQUESTED: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && 'true' || vars.CLIPPERS_STREAMER_CLOUD_DRY_RUN || 'false' }}
+
+concurrency:
+  group: clippers-streamers-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.repository == 'robertmanzanillag-jpg/blackops' &&
+      vars.CLIPPERS_STREAMERS_CLOUD_ENABLED == 'true' &&
+      vars.CLIPPERS_STREAMER_CLOUD_PUBLISH_ENABLED == 'true' &&
+      vars.CLIPPERS_STREAMER_CLOUD_KILL_SWITCH != 'true' &&
+      !(github.event_name == 'workflow_dispatch' && (github.ref != 'refs/heads/main' || inputs.growth_only))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write # temporary media release assets only (GITHUB_TOKEN, no extra secret)
+    steps:
+      - name: Clock gate (New York 09:00-19:59, minute < 15, unless dispatched)
+        id: gate
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          hour=$((10#$(TZ=America/New_York date +%H)))
+          minute=$((10#$(date -u +%M)))
+          if [ "$EVENT" = "workflow_dispatch" ] || { [ "$hour" -ge 9 ] && [ "$hour" -le 19 ] && [ "$minute" -lt 15 ]; }; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Outside the publish window (NY hour $hour, minute $minute); skipping."
+          fi
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: steps.gate.outputs.run == 'true'
+        with:
+          # Production code only: the reviewed OFFICE_SOURCE_REF or main (also for dispatches on main).
+          ref: ${{ vars.OFFICE_SOURCE_REF || 'main' }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        if: steps.gate.outputs.run == 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        if: steps.gate.outputs.run == 'true'
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Install ffmpeg and yt-dlp helpers
+        if: steps.gate.outputs.run == 'true'
+        env:
+          YTDLP_FROM_PIP: ${{ vars.CLIPPERS_YTDLP_FROM_PIP || 'false' }}
+          # Exact pins. bin/yt-dlp 2026.06.09 supports curl_cffi 0.10.x-0.15.x only.
+          CURL_CFFI_VERSION: 0.13.0
+          YTDLP_PIP_VERSION: ${{ vars.CLIPPERS_YTDLP_PIP_VERSION || '2026.06.09' }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends ffmpeg > /dev/null
+          python3 -m pip install --quiet --disable-pip-version-check --target "$RUNNER_TEMP/curl-cffi" "curl-cffi==$CURL_CFFI_VERSION"
+          echo "CLIPPERS_CURL_CFFI_DIR=$RUNNER_TEMP/curl-cffi" >> "$GITHUB_ENV"
+          if [ "$YTDLP_FROM_PIP" = "true" ]; then
+            if ! printf '%s' "$YTDLP_PIP_VERSION" | grep -Eq '^[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]+)?$'; then echo "::error::CLIPPERS_YTDLP_PIP_VERSION must be an exact version"; exit 1; fi
+            python3 -m pip install --quiet --disable-pip-version-check --target "$RUNNER_TEMP/yt-dlp" "yt-dlp[default]==$YTDLP_PIP_VERSION"
+            printf '#!/bin/sh\nPYTHONPATH="%s:%s" exec python3 -m yt_dlp "$@"\n' "$RUNNER_TEMP/yt-dlp" "$RUNNER_TEMP/curl-cffi" > "$RUNNER_TEMP/yt-dlp-bin"
+            chmod +x "$RUNNER_TEMP/yt-dlp-bin"
+            echo "CLIPPERS_YTDLP_BIN=$RUNNER_TEMP/yt-dlp-bin" >> "$GITHUB_ENV"
+          fi
+          ffmpeg -hide_banner -filters 2>/dev/null | grep -q drawtext
+          # Non-secret tool diagnostics for the public log.
+          YTDLP="${CLIPPERS_YTDLP_BIN:-bin/yt-dlp}"
+          if [ -f "$GITHUB_ENV" ]; then YTDLP="$(grep '^CLIPPERS_YTDLP_BIN=' "$GITHUB_ENV" | tail -1 | cut -d= -f2- || true)"; YTDLP="${YTDLP:-bin/yt-dlp}"; fi
+          echo "yt-dlp: $("$YTDLP" --version 2>&1 | tail -1)"
+          echo "ffmpeg: $(ffmpeg -version 2>/dev/null | head -1 | cut -d' ' -f1-3)"
+          echo "impersonate targets (chrome):"; PYTHONPATH="$RUNNER_TEMP/curl-cffi" "$YTDLP" --list-impersonate-targets 2>&1 | grep -iE 'chrome|curl_cffi|unavailable' | head -5 || true
+
+      # Word-by-word captions: whisper.cpp built from source at a pinned tag + commit, multilingual ggml base model
+      # (EN + ES) with a pinned checksum, both cached (actions/cache). Best effort: if any of this fails the env vars
+      # stay unset and clips render without word captions (evidence: captions=whisper_not_configured).
+      - name: Restore whisper.cpp build + model cache
+        if: steps.gate.outputs.run == 'true' && vars.CLIPPERS_WHISPER_ENABLED != 'false'
+        id: whisper-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/whisper
+          key: whisper-cpp-v1.8.7-48f628a8-ggml-base-4657074-ubuntu-24.04-${{ runner.arch }}
+
+      - name: Build whisper.cpp + fetch model (pinned, verified)
+        if: steps.gate.outputs.run == 'true' && vars.CLIPPERS_WHISPER_ENABLED != 'false'
+        continue-on-error: true
+        timeout-minutes: 6
+        env:
+          WHISPER_TAG: v1.8.7
+          WHISPER_COMMIT: 48f628a84833905ee4a0658ee6d4a5c915ce1997
+          # ggml-base.bin (multilingual, 142 MiB). SHA-1 as published in whisper.cpp v1.8.7 models/README.md;
+          # optional extra SHA-256 pin via the repository variable CLIPPERS_WHISPER_MODEL_SHA256.
+          MODEL_URL: https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin
+          MODEL_SHA1: 465707469ff3a37a2b9b8d8f89f2f99de7299dac
+          MODEL_SHA256: ${{ vars.CLIPPERS_WHISPER_MODEL_SHA256 }}
+          BIN_SHA256: ${{ vars.CLIPPERS_WHISPER_BIN_SHA256 }}
+          CACHE_HIT: ${{ steps.whisper-cache.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+          W="$RUNNER_TEMP/whisper"; mkdir -p "$W"
+          if [ ! -x "$W/whisper-cli" ]; then
+            git -c advice.detachedHead=false clone -q --depth 1 --branch "$WHISPER_TAG" https://github.com/ggml-org/whisper.cpp "$W/src"
+            test "$(git -C "$W/src" rev-parse HEAD)" = "$WHISPER_COMMIT" || { echo "::warning::whisper.cpp tag moved; not building"; exit 1; }
+            cmake -S "$W/src" -B "$W/build" -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF \
+              -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF -DWHISPER_SDL2=OFF > /dev/null
+            cmake --build "$W/build" -j"$(nproc)" --target whisper-cli > /dev/null
+            cp "$W/build/bin/whisper-cli" "$W/whisper-cli"; rm -rf "$W/src" "$W/build"
+            sha256sum "$W/whisper-cli" | cut -d' ' -f1 > "$W/whisper-cli.sha256"
+          fi
+          # The cached binary must match the SHA-256 recorded when it was built (and the optional pinned value).
+          BIN_SHA="$(sha256sum "$W/whisper-cli" | cut -d' ' -f1)"
+          if [ ! -s "$W/whisper-cli.sha256" ] || [ "$BIN_SHA" != "$(cat "$W/whisper-cli.sha256")" ] || { [ -n "$BIN_SHA256" ] && [ "$BIN_SHA" != "$BIN_SHA256" ]; }; then
+            rm -f "$W/whisper-cli" "$W/whisper-cli.sha256"; echo "::warning::whisper-cli SHA-256 mismatch"; exit 1
+          fi
+          echo "whisper-cli sha256: $BIN_SHA"
+          if [ ! -f "$W/ggml-base.bin" ]; then
+            curl -fsSL --retry 3 --max-time 240 -o "$W/ggml-base.bin.part" "$MODEL_URL"
+            mv "$W/ggml-base.bin.part" "$W/ggml-base.bin"
+          fi
+          # Verify on every run (cache hits included); a mismatch deletes the files so the cache cannot keep them.
+          if ! echo "$MODEL_SHA1  $W/ggml-base.bin" | sha1sum -c --quiet -; then rm -f "$W/ggml-base.bin"; echo "::warning::whisper model SHA-1 mismatch"; exit 1; fi
+          if [ -n "$MODEL_SHA256" ] && ! echo "$MODEL_SHA256  $W/ggml-base.bin" | sha256sum -c --quiet -; then rm -f "$W/ggml-base.bin"; echo "::warning::whisper model SHA-256 mismatch"; exit 1; fi
+          echo "whisper model sha256: $(sha256sum "$W/ggml-base.bin" | cut -d' ' -f1) (cache hit: ${CACHE_HIT:-false})"
+          "$W/whisper-cli" --help > /dev/null 2>&1
+          { echo "CLIPPERS_WHISPER_BIN=$W/whisper-cli"; echo "CLIPPERS_WHISPER_MODEL=$W/ggml-base.bin"; echo "CLIPPERS_WHISPER_THREADS=$(nproc)"; } >> "$GITHUB_ENV"
+
+      - name: Download, render, publish approved clips
+        if: steps.gate.outputs.run == 'true'
+        env:
+          NODE_ENV: production
+          DATABASE_URL: ${{ secrets.OFFICE_DATABASE_URL }}
+          DEFAULT_USER_ID: ${{ secrets.OFFICE_OWNER_ID }}
+          METRICOOL_USER_TOKEN: ${{ secrets.METRICOOL_USER_TOKEN }}
+          METRICOOL_USER_ID: ${{ secrets.METRICOOL_USER_ID }}
+          TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+          CLIPPERS_STREAMER_CLOUD_PUBLISH_ENABLED: ${{ vars.CLIPPERS_STREAMER_CLOUD_PUBLISH_ENABLED }}
+          CLIPPERS_STREAMER_CLOUD_KILL_SWITCH: ${{ vars.CLIPPERS_STREAMER_CLOUD_KILL_SWITCH || 'false' }}
+          CLIPPERS_STREAMER_CLOUD_DRY_RUN: ${{ env.CLIPPERS_DRY_RUN_REQUESTED }}
+          CLIPPERS_STREAMER_CLOUD_CLIPS_PER_RUN: ${{ vars.CLIPPERS_STREAMER_CLOUD_CLIPS_PER_RUN }}
+          CLIPPERS_STREAMER_CLOUD_DAILY_PER_DESTINATION: ${{ vars.CLIPPERS_STREAMER_CLOUD_DAILY_PER_DESTINATION }}
+          CLIPPERS_STREAMER_CLOUD_SLOTS: ${{ vars.CLIPPERS_STREAMER_CLOUD_SLOTS }}
+          CLIPPERS_STREAMER_CLOUD_DESTINATIONS: ${{ vars.CLIPPERS_STREAMER_CLOUD_DESTINATIONS }}
+          CLIPPERS_STREAMER_CLOUD_MIN_INTERVAL_MINUTES: ${{ vars.CLIPPERS_STREAMER_CLOUD_MIN_INTERVAL_MINUTES || '180' }}
+          CLIPPERS_STREAMER_CLIP_SECONDS: ${{ vars.CLIPPERS_STREAMER_CLIP_SECONDS }}
+          CLIPPERS_STREAMER_CLOUD_PLATFORMS: ${{ vars.CLIPPERS_STREAMER_CLOUD_PLATFORMS }}
+          # Optional residential proxy for YouTube sources only (docs/clippers-cloud-lanes.md section 5). Unset = Twitch-only default.
+          YT_DLP_PROXY: ${{ secrets.YT_DLP_PROXY }}
+          CLIPPERS_STREAMER_CLOUD_RUN_DEADLINE_MINUTES: ${{ vars.CLIPPERS_STREAMER_CLOUD_RUN_DEADLINE_MINUTES || '20' }}
+          CLIPPERS_STREAMER_LANES_ENABLED: ${{ vars.CLIPPERS_STREAMER_LANES_ENABLED || 'true' }}
+          CLIPPERS_STREAMER_LANE_AUTOPUBLISH: ${{ vars.CLIPPERS_STREAMER_LANE_AUTOPUBLISH || 'true' }}
+          # Owner override (kill switch: set the repo variable to "off" / "" -> drafts + owner approval again).
+          CLIPPERS_LANES_AUTOPUBLISH_OVERRIDE: ${{ vars.CLIPPERS_LANES_AUTOPUBLISH_OVERRIDE || 'default' }}
+          CLIPPERS_STREAMER_GROWTH_INTERVAL_HOURS: ${{ vars.CLIPPERS_STREAMER_GROWTH_INTERVAL_HOURS || '6' }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            node --import tsx script/clippers-streamer-cloud-worker.mjs --dry-run-output "$RUNNER_TEMP/clippers-dry-run"
+          else
+            node --import tsx script/clippers-streamer-cloud-worker.mjs --respect-interval --dry-run-output "$RUNNER_TEMP/clippers-dry-run"
+          fi
+
+      - name: Keep dry-run renders for review (1 day)
+        if: steps.gate.outputs.run == 'true' && env.CLIPPERS_DRY_RUN_REQUESTED == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: clippers-dry-run-renders
+          path: ${{ runner.temp }}/clippers-dry-run/*.mp4
+          retention-days: 1
+          if-no-files-found: ignore
+
+  branch-dry-run:
+    if: >-
+      github.repository == 'robertmanzanillag-jpg/blackops' &&
+      vars.CLIPPERS_STREAMERS_CLOUD_ENABLED == 'true' &&
+      vars.CLIPPERS_STREAMER_CLOUD_PUBLISH_ENABLED == 'true' &&
+      vars.CLIPPERS_STREAMER_CLOUD_KILL_SWITCH != 'true' &&
+      github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read # no release assets: this path can never upload or publish
+    steps:
+      - name: Branch dispatches must be dry runs
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [ "$DRY_RUN" != "true" ]; then
+            echo "::error::A dispatch on a branch other than main must set dry_run=true (render only; no upload, no Metricool, no state)."
+            exit 1
+          fi
+      - name: Clock gate (New York 09:00-19:59, minute < 15, unless dispatched)
+        id: gate
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          hour=$((10#$(TZ=America/New_York date +%H)))
+          minute=$((10#$(date -u +%M)))
+          if [ "$EVENT" = "workflow_dispatch" ] || { [ "$hour" -ge 9 ] && [ "$hour" -le 19 ] && [ "$minute" -lt 15 ]; }; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Outside the publish window (NY hour $hour, minute $minute); skipping."
+          fi
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: steps.gate.outputs.run == 'true'
+        with:
+          # Testing a branch: render-only path, no Metricool token, read-only GITHUB_TOKEN.
+          ref: ${{ github.ref }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        if: steps.gate.outputs.run == 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        if: steps.gate.outputs.run == 'true'
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Install ffmpeg and yt-dlp helpers
+        if: steps.gate.outputs.run == 'true'
+        env:
+          YTDLP_FROM_PIP: ${{ vars.CLIPPERS_YTDLP_FROM_PIP || 'false' }}
+          # Exact pins. bin/yt-dlp 2026.06.09 supports curl_cffi 0.10.x-0.15.x only.
+          CURL_CFFI_VERSION: 0.13.0
+          YTDLP_PIP_VERSION: ${{ vars.CLIPPERS_YTDLP_PIP_VERSION || '2026.06.09' }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends ffmpeg > /dev/null
+          python3 -m pip install --quiet --disable-pip-version-check --target "$RUNNER_TEMP/curl-cffi" "curl-cffi==$CURL_CFFI_VERSION"
+          echo "CLIPPERS_CURL_CFFI_DIR=$RUNNER_TEMP/curl-cffi" >> "$GITHUB_ENV"
+          if [ "$YTDLP_FROM_PIP" = "true" ]; then
+            if ! printf '%s' "$YTDLP_PIP_VERSION" | grep -Eq '^[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]+)?$'; then echo "::error::CLIPPERS_YTDLP_PIP_VERSION must be an exact version"; exit 1; fi
+            python3 -m pip install --quiet --disable-pip-version-check --target "$RUNNER_TEMP/yt-dlp" "yt-dlp[default]==$YTDLP_PIP_VERSION"
+            printf '#!/bin/sh\nPYTHONPATH="%s:%s" exec python3 -m yt_dlp "$@"\n' "$RUNNER_TEMP/yt-dlp" "$RUNNER_TEMP/curl-cffi" > "$RUNNER_TEMP/yt-dlp-bin"
+            chmod +x "$RUNNER_TEMP/yt-dlp-bin"
+            echo "CLIPPERS_YTDLP_BIN=$RUNNER_TEMP/yt-dlp-bin" >> "$GITHUB_ENV"
+          fi
+          ffmpeg -hide_banner -filters 2>/dev/null | grep -q drawtext
+          # Non-secret tool diagnostics for the public log.
+          YTDLP="${CLIPPERS_YTDLP_BIN:-bin/yt-dlp}"
+          if [ -f "$GITHUB_ENV" ]; then YTDLP="$(grep '^CLIPPERS_YTDLP_BIN=' "$GITHUB_ENV" | tail -1 | cut -d= -f2- || true)"; YTDLP="${YTDLP:-bin/yt-dlp}"; fi
+          echo "yt-dlp: $("$YTDLP" --version 2>&1 | tail -1)"
+          echo "ffmpeg: $(ffmpeg -version 2>/dev/null | head -1 | cut -d' ' -f1-3)"
+          echo "impersonate targets (chrome):"; PYTHONPATH="$RUNNER_TEMP/curl-cffi" "$YTDLP" --list-impersonate-targets 2>&1 | grep -iE 'chrome|curl_cffi|unavailable' | head -5 || true
+
+      # Word-by-word captions: whisper.cpp built from source at a pinned tag + commit, multilingual ggml base model
+      # (EN + ES) with a pinned checksum, both cached (actions/cache). Best effort: if any of this fails the env vars
+      # stay unset and clips render without word captions (evidence: captions=whisper_not_configured).
+      - name: Restore whisper.cpp build + model cache
+        if: steps.gate.outputs.run == 'true' && vars.CLIPPERS_WHISPER_ENABLED != 'false'
+        id: whisper-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/whisper
+          key: whisper-cpp-v1.8.7-48f628a8-ggml-base-4657074-ubuntu-24.04-${{ runner.arch }}
+
+      - name: Build whisper.cpp + fetch model (pinned, verified)
+        if: steps.gate.outputs.run == 'true' && vars.CLIPPERS_WHISPER_ENABLED != 'false'
+        continue-on-error: true
+        timeout-minutes: 6
+        env:
+          WHISPER_TAG: v1.8.7
+          WHISPER_COMMIT: 48f628a84833905ee4a0658ee6d4a5c915ce1997
+          # ggml-base.bin (multilingual, 142 MiB). SHA-1 as published in whisper.cpp v1.8.7 models/README.md;
+          # optional extra SHA-256 pin via the repository variable CLIPPERS_WHISPER_MODEL_SHA256.
+          MODEL_URL: https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin
+          MODEL_SHA1: 465707469ff3a37a2b9b8d8f89f2f99de7299dac
+          MODEL_SHA256: ${{ vars.CLIPPERS_WHISPER_MODEL_SHA256 }}
+          BIN_SHA256: ${{ vars.CLIPPERS_WHISPER_BIN_SHA256 }}
+          CACHE_HIT: ${{ steps.whisper-cache.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+          W="$RUNNER_TEMP/whisper"; mkdir -p "$W"
+          if [ ! -x "$W/whisper-cli" ]; then
+            git -c advice.detachedHead=false clone -q --depth 1 --branch "$WHISPER_TAG" https://github.com/ggml-org/whisper.cpp "$W/src"
+            test "$(git -C "$W/src" rev-parse HEAD)" = "$WHISPER_COMMIT" || { echo "::warning::whisper.cpp tag moved; not building"; exit 1; }
+            cmake -S "$W/src" -B "$W/build" -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF \
+              -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF -DWHISPER_SDL2=OFF > /dev/null
+            cmake --build "$W/build" -j"$(nproc)" --target whisper-cli > /dev/null
+            cp "$W/build/bin/whisper-cli" "$W/whisper-cli"; rm -rf "$W/src" "$W/build"
+            sha256sum "$W/whisper-cli" | cut -d' ' -f1 > "$W/whisper-cli.sha256"
+          fi
+          # The cached binary must match the SHA-256 recorded when it was built (and the optional pinned value).
+          BIN_SHA="$(sha256sum "$W/whisper-cli" | cut -d' ' -f1)"
+          if [ ! -s "$W/whisper-cli.sha256" ] || [ "$BIN_SHA" != "$(cat "$W/whisper-cli.sha256")" ] || { [ -n "$BIN_SHA256" ] && [ "$BIN_SHA" != "$BIN_SHA256" ]; }; then
+            rm -f "$W/whisper-cli" "$W/whisper-cli.sha256"; echo "::warning::whisper-cli SHA-256 mismatch"; exit 1
+          fi
+          echo "whisper-cli sha256: $BIN_SHA"
+          if [ ! -f "$W/ggml-base.bin" ]; then
+            curl -fsSL --retry 3 --max-time 240 -o "$W/ggml-base.bin.part" "$MODEL_URL"
+            mv "$W/ggml-base.bin.part" "$W/ggml-base.bin"
+          fi
+          # Verify on every run (cache hits included); a mismatch deletes the files so the cache cannot keep them.
+          if ! echo "$MODEL_SHA1  $W/ggml-base.bin" | sha1sum -c --quiet -; then rm -f "$W/ggml-base.bin"; echo "::warning::whisper model SHA-1 mismatch"; exit 1; fi
+          if [ -n "$MODEL_SHA256" ] && ! echo "$MODEL_SHA256  $W/ggml-base.bin" | sha256sum -c --quiet -; then rm -f "$W/ggml-base.bin"; echo "::warning::whisper model SHA-256 mismatch"; exit 1; fi
+          echo "whisper model sha256: $(sha256sum "$W/ggml-base.bin" | cut -d' ' -f1) (cache hit: ${CACHE_HIT:-false})"
+          "$W/whisper-cli" --help > /dev/null 2>&1
+          { echo "CLIPPERS_WHISPER_BIN=$W/whisper-cli"; echo "CLIPPERS_WHISPER_MODEL=$W/ggml-base.bin"; echo "CLIPPERS_WHISPER_THREADS=$(nproc)"; } >> "$GITHUB_ENV"
+
+      - name: Download, render, publish approved clips
+        if: steps.gate.outputs.run == 'true'
+        env:
+          NODE_ENV: production
+          DATABASE_URL: ${{ secrets.OFFICE_DATABASE_URL }}
+          DEFAULT_USER_ID: ${{ secrets.OFFICE_OWNER_ID }}
+          TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          CLIPPERS_STREAMER_CLOUD_PUBLISH_ENABLED: ${{ vars.CLIPPERS_STREAMER_CLOUD_PUBLISH_ENABLED }}
+          CLIPPERS_STREAMER_CLOUD_KILL_SWITCH: ${{ vars.CLIPPERS_STREAMER_CLOUD_KILL_SWITCH || 'false' }}
+          CLIPPERS_STREAMER_CLOUD_DRY_RUN: 'true'
+          CLIPPERS_STREAMER_CLOUD_CLIPS_PER_RUN: ${{ vars.CLIPPERS_STREAMER_CLOUD_CLIPS_PER_RUN }}
+          CLIPPERS_STREAMER_CLOUD_DAILY_PER_DESTINATION: ${{ vars.CLIPPERS_STREAMER_CLOUD_DAILY_PER_DESTINATION }}
+          CLIPPERS_STREAMER_CLOUD_SLOTS: ${{ vars.CLIPPERS_STREAMER_CLOUD_SLOTS }}
+          CLIPPERS_STREAMER_CLOUD_DESTINATIONS: ${{ vars.CLIPPERS_STREAMER_CLOUD_DESTINATIONS }}
+          CLIPPERS_STREAMER_CLOUD_MIN_INTERVAL_MINUTES: ${{ vars.CLIPPERS_STREAMER_CLOUD_MIN_INTERVAL_MINUTES || '180' }}
+          CLIPPERS_STREAMER_CLIP_SECONDS: ${{ vars.CLIPPERS_STREAMER_CLIP_SECONDS }}
+          CLIPPERS_STREAMER_CLOUD_PLATFORMS: ${{ vars.CLIPPERS_STREAMER_CLOUD_PLATFORMS }}
+          # Optional residential proxy for YouTube sources only (docs/clippers-cloud-lanes.md section 5). Unset = Twitch-only default.
+          YT_DLP_PROXY: ${{ secrets.YT_DLP_PROXY }}
+          CLIPPERS_STREAMER_CLOUD_RUN_DEADLINE_MINUTES: ${{ vars.CLIPPERS_STREAMER_CLOUD_RUN_DEADLINE_MINUTES || '20' }}
+          CLIPPERS_STREAMER_LANES_ENABLED: ${{ vars.CLIPPERS_STREAMER_LANES_ENABLED || 'true' }}
+          CLIPPERS_STREAMER_LANE_AUTOPUBLISH: ${{ vars.CLIPPERS_STREAMER_LANE_AUTOPUBLISH || 'true' }}
+          # Owner override (kill switch: set the repo variable to "off" / "" -> drafts + owner approval again).
+          CLIPPERS_LANES_AUTOPUBLISH_OVERRIDE: ${{ vars.CLIPPERS_LANES_AUTOPUBLISH_OVERRIDE || 'default' }}
+          CLIPPERS_STREAMER_GROWTH_INTERVAL_HOURS: ${{ vars.CLIPPERS_STREAMER_GROWTH_INTERVAL_HOURS || '6' }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            node --import tsx script/clippers-streamer-cloud-worker.mjs --dry-run-output "$RUNNER_TEMP/clippers-dry-run"
+          else
+            node --import tsx script/clippers-streamer-cloud-worker.mjs --respect-interval --dry-run-output "$RUNNER_TEMP/clippers-dry-run"
+          fi
+
+      - name: Keep dry-run renders for review (1 day)
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: clippers-dry-run-renders
+          path: ${{ runner.temp }}/clippers-dry-run/*.mp4
+          retention-days: 1
+          if-no-files-found: ignore
+
+  # Per-account growth loop in the cloud (no Mac): once a day before the first slot (New York 08:00-08:14),
+  # or on a growth_only dispatch. Read-only Metricool analytics + best time; never writes a Metricool post.
+  # Decisions (kill < 300 median after 6 posts, > 10k -> 3 follow-ups, > 100k -> double the creator,
+  # auto-publish at weekly median >= 1k) are stored in the streamer ledger for the publish job and the office.
+  growth:
+    if: >-
+      github.repository == 'robertmanzanillag-jpg/blackops' &&
+      vars.CLIPPERS_STREAMERS_CLOUD_ENABLED == 'true' &&
+      vars.CLIPPERS_STREAMER_CLOUD_KILL_SWITCH != 'true' &&
+      vars.CLIPPERS_STREAMER_LANES_ENABLED != 'false' &&
+      (github.event_name == 'workflow_run' || (github.event_name == 'workflow_dispatch' && inputs.growth_only && github.ref == 'refs/heads/main'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Clock gate (New York 08:00-08:14, unless dispatched)
+        id: gate
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          hour=$((10#$(TZ=America/New_York date +%H)))
+          minute=$((10#$(date -u +%M)))
+          if [ "$EVENT" = "workflow_dispatch" ] || { [ "$hour" -eq 8 ] && [ "$minute" -lt 15 ]; }; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: steps.gate.outputs.run == 'true'
+        with:
+          ref: ${{ vars.OFFICE_SOURCE_REF || 'main' }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        if: steps.gate.outputs.run == 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        if: steps.gate.outputs.run == 'true'
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Growth loop (read-only Metricool)
+        if: steps.gate.outputs.run == 'true'
+        env:
+          NODE_ENV: production
+          DATABASE_URL: ${{ secrets.OFFICE_DATABASE_URL }}
+          DEFAULT_USER_ID: ${{ secrets.OFFICE_OWNER_ID }}
+          METRICOOL_USER_TOKEN: ${{ secrets.METRICOOL_USER_TOKEN }}
+          METRICOOL_USER_ID: ${{ secrets.METRICOOL_USER_ID }}
+          CLIPPERS_STREAMER_CLOUD_PUBLISH_ENABLED: ${{ vars.CLIPPERS_STREAMER_CLOUD_PUBLISH_ENABLED }}
+          CLIPPERS_STREAMER_CLOUD_KILL_SWITCH: ${{ vars.CLIPPERS_STREAMER_CLOUD_KILL_SWITCH || 'false' }}
+          CLIPPERS_STREAMER_CLOUD_DESTINATIONS: ${{ vars.CLIPPERS_STREAMER_CLOUD_DESTINATIONS }}
+          CLIPPERS_STREAMER_LANES_ENABLED: 'true'
+          # Owner override (kill switch: set the repo variable to "off" / "" -> drafts + owner approval again).
+          CLIPPERS_LANES_AUTOPUBLISH_OVERRIDE: ${{ vars.CLIPPERS_LANES_AUTOPUBLISH_OVERRIDE || 'default' }}
+        run: node --import tsx script/clippers-streamer-cloud-worker.mjs --growth-only

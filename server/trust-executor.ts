@@ -1,3 +1,4 @@
+import { assertCeoActionActive, CeoDomainPausedError } from "./ceo-domain-policy";
 import type { PendingAction } from "@shared/schema";
 import { storage } from "./storage";
 import { createCalendarEvent, updateCalendarEvent, updateCalendarEventDescription } from "./google-calendar";
@@ -21,6 +22,20 @@ export async function executeApprovedPendingAction(
     return { success: false, error: "Action must be approved before execution" };
   }
 
+  // An old approval does not authorize work while its business domain is paused.
+  try {
+    assertCeoActionActive(action);
+    if (action.actionType === "automation.manual_run") {
+      const automationId = actionInput(action).automationId;
+      if (typeof automationId === "string") {
+        const automation = await storage.getAutomationDefinition(automationId);
+        if (automation && automation.ownerUserId === action.userId) assertCeoActionActive({ actionType: automation.assignedAgentId || "", metadata: automation.metadata });
+      }
+    }
+  } catch (error) {
+    if (error instanceof CeoDomainPausedError) return { success: false, error: error.message };
+    throw error;
+  }
   await storage.updatePendingAction(action.id, { status: "executing" });
   await storage.createPendingActionEvent({
     pendingActionId: action.id,
@@ -222,6 +237,13 @@ export async function executeApprovedPendingAction(
         break;
       }
 
+      case "clippers.streamer_clip_publish": {
+        // Owner approval of a streamer clip candidate. Nothing external happens here: the cloud
+        // discovery job reads the approval and hands the clip to the Mac download/render worker;
+        // publication stays on the existing Metricool path with its own caps and receipts.
+        result = { handoff: "clippers_streamer_queue", candidateId: typeof input.candidateId === "string" ? input.candidateId : null, externalCalls: 0 };
+        break;
+      }
       case "agent_council.lesson":
       case "agent_council.skill_update":
       case "agent_council.new_agent":

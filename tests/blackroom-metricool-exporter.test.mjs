@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import vm from "node:vm";
 import path from "node:path";
 import { promisify } from "node:util";
+import { createClippersOrchestraRelay, clippersOrchestraRemoteEligibility } from "../script/clippers-orchestra-relay.mjs";
 import { acquireMetricoolExports, buildVerifiedMetricoolExport, deliverMetricoolExports, metricoolPublicationInstant } from "../script/blackroom-metricool-exporter.mjs";
 
 test("export times are explicit source observations and local publication time uses New York DST", () => {
@@ -107,6 +108,7 @@ test("protected status exposes partial and complete automatic delivery without m
   let handler, fail = true;
   const context = vm.createContext({
     Buffer, URL, AbortSignal, console, path, promisify, deliverMetricoolExports,
+    createClippersOrchestraRelay, clippersOrchestraRemoteEligibility,
     process: { cwd: () => "/fixture", platform: "darwin", execPath: "/fixture/node", env: { BLACKROOM_REMOTE_CONTROL_TOKEN: "fixture", BLACKROOM_CONTROL_PORT: "5020" } },
     homedir: () => "/fixture", randomBytes: () => Buffer.alloc(32), timingSafeEqual: (a, b) => a.equals(b),
     http: { createServer: (fn) => { handler = fn; return { listen() {} }; } },

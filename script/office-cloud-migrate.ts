@@ -12,7 +12,7 @@ async function main() {
       args.filter(arg => arg.startsWith("--import-council-revision=")).length > 1) throw new Error("unsupported argument");
   if (!process.env.DATABASE_URL?.trim()) throw new Error("database configuration required");
   const apply = args.includes("--apply");
-  const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 10000 });
+  const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 10000 , application_name: "blackops-migrate" });
   try {
     const client = await pool.connect();
     try {

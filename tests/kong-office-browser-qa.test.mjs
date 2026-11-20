@@ -102,11 +102,16 @@ test('KONG unified office: browser route, click, API, error and improvement scou
    await page.getByTestId('world-company-label').filter({hasText:'KONG'}).waitFor();
    await page.getByTestId('world-deptnav').waitFor();
    const account=await page.getByRole('button',{name:'Salir',exact:true}).locator('..').boundingBox();assert.ok(account);
-   for(const title of ['Oficina 3D','Edificio','Clasica','Supervisor KONG','Oficina KONG','Operacion KONG']){
+   // Only the 3D office remains: the Edificio and Clasica view switches were removed.
+   for(const title of ['Edificio','Clasica'])assert.equal(await page.getByRole('button',{name:title,exact:true}).count(),0,title+' view was removed');
+   for(const title of ['Reparaciones KONG','Oficina KONG','Operacion KONG']){
     const box=await page.getByRole('button',{name:title,exact:true}).boundingBox();assert.ok(box,title);
     assert.ok(box.x>=0 && box.x+box.width<=page.viewportSize().width,title+' stays within viewport');
     assert.ok(box.x+box.width<=account.x || account.x+account.width<=box.x || box.y+box.height<=account.y || account.y+account.height<=box.y,title+' must not overlap account controls');
    }
+   // The floating controls start high: never over the bottom "Fabrica de software" button.
+   {const panel=await page.getByTestId('world-controls-panel').boundingBox();const factory=await page.getByTestId('open-software-factory').boundingBox();
+    if(panel&&factory)assert.ok(panel.y+panel.height<=factory.y,'office controls must stay above the Fabrica de software button');}
    // One office contains the operational departments and all 25 city teams.
    const nav=page.getByTestId('world-deptnav');
    await page.waitForFunction(()=>document.querySelector('[data-testid=world-deptnav]')?.querySelectorAll('button').length>=25);

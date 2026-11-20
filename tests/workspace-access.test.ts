@@ -734,3 +734,24 @@ test("Black Room chat: a partner cannot start, pause or add posts through the ch
   assert.equal(source.result.refused, false);
   assert.equal(source.state.commands.at(-1)?.type, "priority_source");
 });
+
+test("redaction: partners never see vida internals, learned skills or academy lessons outside Black Room", () => {
+  const vitality = { anchorAt: "2026-11-19T00:00:00.000Z", missesApplied: 1, creditedIds: ["streamer-post:stc-1"], lastVerifiedLabel: "Métrica real de Metricool: 900 vistas", proposedKeys: { "automejora:x": "t" } };
+  const view = {
+    company: { careers: {
+      "clippers-editor": { agentId: "clippers-editor", memory: [], skills: [{ id: "academia:clippers-hook:tiktok:kong:teaser", title: "Aprendió: Hook teaser gana en tiktok:kong" }], vitality },
+      "blackroom-publisher": { agentId: "blackroom-publisher", memory: [], skills: [{ id: "academia:br", title: "Black Room skill" }], vitality: { anchorAt: "2026-11-19T00:00:00.000Z", missesApplied: 0, creditedIds: [] } },
+    }, retiredCareers: [{ agentId: "code", memory: [], skills: [{ id: "s", title: "Mejora aprobada: privado" }], vitality }], orders: [], events: [], trainees: [] },
+    vitality: [{ agentId: "clippers-editor", lastVerifiedLabel: "Métrica real de Metricool: 900 vistas" }, { agentId: "blackroom-publisher" }],
+    clippersAcademy: { observedAt: "t", lessons: [{ title: "Priorizar twitch:alpha" }] },
+    proposals: [], debates: [], lessons: [],
+  };
+  const out = redactCouncilViewForPartner(view) as any;
+  const text = JSON.stringify(out);
+  for (const secret of ["tiktok:kong", "900 vistas", "streamer-post", "twitch:alpha", "Mejora aprobada", "automejora:x"]) assert.equal(text.includes(secret), false, secret);
+  assert.equal(out.company.careers["clippers-editor"].vitality, undefined);
+  assert.deepEqual(out.company.careers["clippers-editor"].skills, []);
+  assert.equal(out.company.careers["blackroom-publisher"].skills.length, 1, "Black Room scope stays visible");
+  assert.deepEqual(out.vitality.map((r: { agentId: string }) => r.agentId), ["blackroom-publisher"]);
+  assert.equal(out.clippersAcademy, null);
+});

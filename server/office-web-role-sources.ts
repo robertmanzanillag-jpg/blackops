@@ -2,7 +2,7 @@ import {open,lstat,readdir} from "node:fs/promises";
 import path from "node:path";
 import {z} from "zod";
 import {sourceDigest} from "./office-role-snapshots";
-import {canonicalOfficeSourcePath,cycleTotals,CYCLE_REPORT_NAME,DAILY_REPORT_NAME,OFFICE_SOURCE_DOCUMENT_DB_MAX_BYTES,parseStoredOfficeSourceDocument,projectOfficeSourceDocument,type OfficeSourceDocumentKind,type OfficeSourceDocumentSet,type StoredDocument,type StoredOfficeSourceEntry} from "./office-source-documents";
+import {canonicalOfficeSourcePath,cycleTotals,CYCLE_REPORT_NAME,DAILY_REPORT_NAME,ForeignOfficeSourceDocumentError,OFFICE_SOURCE_DOCUMENT_DB_MAX_BYTES,parseStoredOfficeSourceDocument,projectOfficeSourceDocument,type OfficeSourceDocumentKind,type OfficeSourceDocumentSet,type StoredDocument,type StoredOfficeSourceEntry} from "./office-source-documents";
 export const WEB_SOURCE_ROLES=["news","news:ny-news","news:miami-news","blackroom-videos","dropshipping","marketing-cmo","clippers"] as const;
 // Fixed SQL projection only: never fetch the remote document's media, analytics,
 // commands or credentials. Preserve absent keys, explicit null and malformed types.
@@ -18,7 +18,11 @@ export type WebSourceRole=typeof WEB_SOURCE_ROLES[number];
 /** Non-report JSON artifacts that Clippers tools/scripts write into
  * clippers_workspace/reports. Skipped by exact name only: any other unexpected
  * file still makes the report folder invalid evidence. */
-export const CLIPPERS_NON_REPORT_FILES:ReadonlySet<string>=new Set(["metricool-approval-report.json","clippers-operational-readiness.json","clippers-external-closeout-pack.json","clippers-external-closeout-proof-todo.json","clippers-external-closeout-operator-queue.json","clippers-external-go-live-audit.json","clippers-external-operator-action-sheet.json","clippers-external-next-work-run.json","clippers-external-closeout-evidence-import-report.json","clippers-external-closeout-repair-work-packet.json","clippers-motivation-ledger.json","marketplace-supply-report.json","marketplace-refresh-report.json"]);
+export const CLIPPERS_NON_REPORT_FILES:ReadonlySet<string>=new Set(["metricool-approval-report.json","clippers-operational-readiness.json","clippers-external-closeout-pack.json","clippers-external-closeout-proof-todo.json","clippers-external-closeout-operator-queue.json","clippers-external-go-live-audit.json","clippers-external-operator-action-sheet.json","clippers-external-next-work-run.json","clippers-external-closeout-evidence-import-report.json","clippers-external-closeout-repair-work-packet.json","clippers-motivation-ledger.json","marketplace-supply-report.json","marketplace-refresh-report.json",
+ // Metricool autopilot / reconciliation / media upload / streamer CEO workers.
+ "metricool-autopilot-queue.json","metricool-autopilot-ledger.json","metricool-public-media-receipts.json","metricool-publication-reconciliation.json","streamer-growth-ceo.json","streamer-subtitle-batch.json",
+ // Campaign draft renderer, YouTube upload/publish/delivery workers.
+ "campaign-draft-renderer.json","campaign-draft-renderer-ledger.json","youtube-upload-ledger.json","youtube-upload-packager-latest.json","youtube-publish-worker-latest.json","youtube-delivery-worker-latest.json"]);
 export type SourcePool={query:(sql:string,args?:unknown[])=>Promise<{rows:any[]}>};
 const stamp=z.string().datetime({offset:true}),num=z.number().finite().nonnegative();
 const lane=z.enum(["miami-news","ny-news"]);
@@ -31,7 +35,7 @@ export type WebSourceRow=z.infer<typeof webSourceRowSchema>;
 const provenanceSchema=z.object({kind:z.enum(["news_state","products","suppliers","marketing_learning","social_metrics","clip_reports","clip_metrics","blackroom_remote"]),status:z.enum(["present","missing","invalid","limit"]),sourceAt:stamp.nullable(),heartbeatAt:stamp.optional(),digest:z.string().regex(/^[a-f0-9]{64}$/).nullable(),records:z.number().int().nonnegative(),files:z.number().int().nonnegative(),empty:z.boolean()}).strict();
 export const webRoleSourceSchema=z.object({version:z.literal(1),ownerKey:z.string().regex(/^[a-f0-9]{64}$/),role:z.enum(WEB_SOURCE_ROLES),observedAt:stamp,rows:z.array(webSourceRowSchema).max(200),total:z.number().int().nonnegative(),truncated:z.boolean(),provenance:z.array(provenanceSchema).max(20),diagnostics:z.array(z.enum(["SOURCE_MISSING","SOURCE_INVALID","SOURCE_LIMIT","SOURCE_STALE","SOURCE_TIME_UNKNOWN","NO_RECORDS","PARTIAL_COVERAGE","RECORDED_BLOCKS","RETRY_BACKLOG","COLLECTED_METRICS_ONLY","PLANS_NOT_EXECUTION","NO_CURRENT_SESSION_PROOF"])),sourceDigest:z.string().regex(/^[a-f0-9]{64}$/)}).strict();
 export type WebRoleSource=z.infer<typeof webRoleSourceSchema>;
-type Part={provenance:z.infer<typeof provenanceSchema>;rows:WebSourceRow[]};
+type Part={provenance:z.infer<typeof provenanceSchema>;rows:WebSourceRow[];foreign?:true};
 /** id is the row id digest (sha256 of [kind, rawId]); stored documents
  * already carry it, so raw producer ids never leave the producer. */
 const rowAt=(kind:WebSourceRow["kind"],id:string,state:WebSourceRow["state"],sourceAt:string|null,values:Record<string,number>,extra:Partial<WebSourceRow>={}):WebSourceRow=>webSourceRowSchema.parse({id,kind,state,sourceAt,metrics:values,...extra});
@@ -77,7 +81,7 @@ export async function readWebRoleSources(options:{pool:SourcePool;owner:string;c
    const projected=project(JSON.parse(data.toString("utf8")));
    if(projected.sourceAt && Date.parse(projected.sourceAt)>now+30000 || projected.rows.some(r=>r.sourceAt && Date.parse(r.sourceAt)>now+30000))return empty(kind,"invalid");
    return {rows:projected.rows,provenance:{kind,status:"present",sourceAt:projected.sourceAt,digest:sourceDigest(projected),records:projected.rows.length,files:1,empty:projected.rows.length===0}};
-  }catch(e){return empty(kind,(e as NodeJS.ErrnoException).code==="ENOENT"?"missing":"invalid");}
+  }catch(e){if(e instanceof ForeignOfficeSourceDocumentError)return {...empty(kind,"missing"),foreign:true};return empty(kind,(e as NodeJS.ErrnoException).code==="ENOENT"?"missing":"invalid");}
  }
  // Durable copies (office_source_documents) win over the host's ephemeral
  // files. A failed database read is invalid evidence, never a file fallback.
@@ -127,12 +131,18 @@ export async function readWebRoleSources(options:{pool:SourcePool;owner:string;c
   const candidates=entries.filter(e=>/^(?:automation-cycle-)?\d{4}-/.test(e.name));
   if(candidates.length!==entries.length)reports.push(empty("clip_reports","invalid"));
   // Reserve provenance for metrics, unknown contracts and the limit marker.
-  const reportLimit=Math.min(Math.max(0,20-fileCount),18-reports.length);
+  const reportLimit=Math.min(Math.max(0,20-fileCount),18-reports.length);let foreignSkipped=0;
   for(const entry of candidates.slice(0,reportLimit)){
    if(!DAILY_REPORT_NAME.test(entry.name)&&!CYCLE_REPORT_NAME.test(entry.name)){reports.push(empty("clip_reports","invalid"));continue;}
-   reports.push(await file("clip_reports",path.join(dir,entry.name),v=>reportRows(projectOfficeSourceDocument("clip_report",v,{owner:options.owner,key:entry.name}))));
+   // Another host user's well-formed report is not this owner's evidence:
+   // skip it (as the owner-keyed durable copy does) instead of marking it invalid.
+   const part=await file("clip_reports",path.join(dir,entry.name),v=>reportRows(projectOfficeSourceDocument("clip_report",v,{owner:options.owner,key:entry.name})));
+   if(part.foreign)foreignSkipped++;else reports.push(part);
   }
-  if(candidates.length>reportLimit)reports.push(empty("clip_reports","limit"));if(!entries.length)reports.push({rows:[],provenance:{kind:"clip_reports",status:"present",sourceAt:null,digest:sourceDigest([]),records:0,files:0,empty:true}});
+  if(candidates.length>reportLimit)reports.push(empty("clip_reports","limit"));
+  // An empty folder is a valid empty source. A folder holding only other
+  // users' reports has no evidence of this owner: missing, never present-empty.
+  if(!reports.length)reports.push(foreignSkipped?empty("clip_reports","missing"):{rows:[],provenance:{kind:"clip_reports",status:"present",sourceAt:null,digest:sourceDigest([]),records:0,files:0,empty:true}});
  }catch(error){reports.push(empty("clip_reports",(error as NodeJS.ErrnoException).code==="ENOENT"?"missing":"invalid"));}
  let remote=empty("blackroom_remote","missing");
  try{const result=await options.pool.query(BLACKROOM_SOURCE_PROJECTION_SQL,["blackroom-primary"]);if(result.rows.length){const x=rawRemote.parse(result.rows[0].data);if(x.device){const parsedQueue=remoteQueue.safeParse(x.device.queue);if(!parsedQueue.success){const invalidValue=parsedQueue.error.issues.some(issue=>issue.path.reduce<any>((value,key)=>value?.[key],x.device!.queue)!==undefined);const queueTime=x.device.queue.updatedAt;const futureQueue=typeof queueTime==="string"&&Date.parse(queueTime)>now+30000;remote=empty("blackroom_remote",invalidValue||futureQueue?"invalid":"missing");remote.provenance.heartbeatAt=x.device.seenAt;if([x.updatedAt,x.device.seenAt].some(t=>Date.parse(t)>now+30000))throw new Error("Future remote source");}else{const q=parsedQueue.data;if([x.updatedAt,x.device.seenAt].some(t=>Date.parse(t)>now+30000))throw new Error("Future remote source");if(Date.parse(q.updatedAt)>now+30000){remote=empty("blackroom_remote","invalid");remote.provenance.heartbeatAt=x.device.seenAt;}else remote={rows:[row("remote_queue","blackroom-primary","recorded",q.updatedAt,q.totals)],provenance:{kind:"blackroom_remote",status:"present",sourceAt:q.updatedAt,heartbeatAt:x.device.seenAt,digest:sourceDigest({seenAt:x.device.seenAt,queueAt:q.updatedAt,totals:q.totals}),records:1,files:0,empty:false}};}}else{if(Date.parse(x.updatedAt)>now+30000)throw new Error("Future remote source");remote={rows:[],provenance:{kind:"blackroom_remote",status:"present",sourceAt:x.updatedAt,digest:sourceDigest({updatedAt:x.updatedAt,device:null}),records:0,files:0,empty:true}};}}}catch{remote=empty("blackroom_remote","invalid");}

@@ -1,3 +1,4 @@
+import { ceoFocusContext } from "./ceo-domain-policy";
 import type { Content, Part } from "@google/genai";
 import { storage } from "./storage";
 import { sendTelegramMessage, sendTelegramPlainMessage, sendTelegramPlainMessageChunks, TelegramUpdate, setTelegramWebhook, getWebhookInfo } from "./telegram";
@@ -553,6 +554,9 @@ async function handleTelegramControlCommand(userId: string, message: string): Pr
   if (command === "approve") {
     const actionId = extractActionId(message);
     if (!actionId) return "Pásame el ID completo de la acción. Ejemplo: aprobar 00000000-0000-0000-0000-000000000000";
+    // KONG Mirror Lab merges need the card's SHA + checks guards: never approve them from Telegram.
+    const pendingKind = (await storage.getPendingAction(actionId))?.actionType;
+    if (pendingKind === "kong_mirror_improvement") return "Esta mejora KONG se aprueba solo desde su tarjeta del Mirror Lab en BlackOps (verifica SHA y checks antes del merge). No cambié nada.";
 
     await recordPendingActionDecision(userId, actionId, "approved", "Aprobado desde Telegram");
     const action = await storage.getPendingAction(actionId);
@@ -1356,7 +1360,7 @@ export async function handleTelegramMessageWithDeps(
     }
 
     const historyLimit = getAiConversationHistoryLimit();
-    const aiCostPolicyContext = buildAiCostPolicyContext("telegram");
+    const aiCostPolicyContext = buildAiCostPolicyContext("telegram") + ceoFocusContext();
     const [calendarContext, userProfile, portfolioContext, tasksContext, ceoContext, conversationHistory, claudeSkillContext] = await Promise.all([
       getCalendarContext(),
       getUserProfileContext(userId),
@@ -1414,12 +1418,19 @@ ${conversationHistory}
       parts.push({ text: `${contextPrompt}\n\nUsuario dice: ${userMessage}` });
     }
 
-    const geminiClient = await getGeminiClient();
-    const result = await geminiClient.models.generateContent({
-      model: getGeminiChatModel({ hasImage: !!imageData }),
-      contents: [{ role: "user", parts }],
-    });
-    const responseText = result.text || "";
+    let responseText = "";
+    const { deepSeekRouted, routedText } = await import("./ai-model-router");
+    if (!imageData && deepSeekRouted()) {
+      // AI_ROUTER_ENABLED=true + DeepSeek configured: repetitive tier, DeepSeek first, own OpenAI key as fallback (both capped).
+      responseText = (await routedText({ tier: "repetitive", label: "telegram-chat", prompt: String((parts[0] as { text?: string })?.text || ""), maxTokens: 900 })).text;
+    } else {
+      const geminiClient = await getGeminiClient();
+      const result = await geminiClient.models.generateContent({
+        model: getGeminiChatModel({ hasImage: !!imageData }),
+        contents: [{ role: "user", parts }],
+      });
+      responseText = result.text || "";
+    }
 
     const actions = await processAssistantResponse(userId, responseText);
     const cleanResponse = cleanResponseForTelegram(responseText);

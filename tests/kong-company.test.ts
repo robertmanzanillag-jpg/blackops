@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { emptyCompanyState } from "../shared/agent-company";
-import { advanceKongCompany } from "../server/kong-company";
+import { advanceKongCareers } from "../server/kong-company";
 import { createAgentCouncil } from "../server/agent-council";
 import { emptyCouncilState, parseCouncilState } from "../shared/agent-council";
 import type { OfficeKongAuditResult } from "../server/office-kong";
@@ -14,20 +14,20 @@ function evidence(): OfficeKongAuditResult["evidence"] {
 }
 const start = () => ({ company: emptyCompanyState(), evidenceAt: {}, evidence: evidence(), now: NOW });
 test("KONG credits only new completed results, not repeated snapshots", () => {
-  const first = advanceKongCompany(start());
+  const first = advanceKongCareers(start());
   assert.equal(first.company.careers["kong:venues"].points, 10);
   assert.equal(first.company.careers["kong-city:miami:clubs"].points, 10);
-  const repeated = advanceKongCompany({ ...start(), company: first.company, evidenceAt: first.evidenceAt });
+  const repeated = advanceKongCareers({ ...start(), company: first.company, evidenceAt: first.evidenceAt });
   assert.deepEqual(repeated.company, first.company);
   const newer = evidence(); newer.cities[0].categories[0].lastRunAt = at(0); newer.cities[0].categories[0].lastSuccessAt = at(0);
-  const next = advanceKongCompany({ ...start(), company: first.company, evidenceAt: first.evidenceAt, evidence: newer });
+  const next = advanceKongCareers({ ...start(), company: first.company, evidenceAt: first.evidenceAt, evidence: newer });
   assert.equal(next.company.careers["kong-city:miami:clubs"].points, 20);
   assert.equal(next.company.careers["kong:venues"].points, 10);
 });
 test("stale or unavailable observations cannot earn points or penalize agents", () => {
-  const first = advanceKongCompany(start());
+  const first = advanceKongCareers(start());
   for (const input of [{ evidence: undefined, now: NOW }, { evidence: evidence(), now: NOW + 6 * 60000 }]) {
-    const result = advanceKongCompany({ company: first.company, evidenceAt: first.evidenceAt, ...input });
+    const result = advanceKongCareers({ company: first.company, evidenceAt: first.evidenceAt, ...input });
     assert.deepEqual(result.company, first.company);
     assert.deepEqual(result.statuses, {});
     assert.equal(result.collaboration.verified, false);
@@ -37,7 +37,7 @@ test("running leases have live activity but earn no completion credit", () => {
   const snapshot = evidence();
   snapshot.agents[0].state = "running";
   snapshot.cities[0].categories[0] = { ...snapshot.cities[0].categories[0], state: "running", lastStartedAt: at(0), leaseUntil: at(2) };
-  const result = advanceKongCompany({ ...start(), evidence: snapshot });
+  const result = advanceKongCareers({ ...start(), evidence: snapshot });
   assert.equal(result.statuses["kong-city:miami:clubs"].state, "working");
   assert.equal(result.company.careers["kong-city:miami:clubs"].points, 0);
   assert.equal(result.statuses["kong:venues"].state, "offline");
@@ -46,10 +46,10 @@ test("running leases have live activity but earn no completion credit", () => {
 test("failure discussions are evidence-backed and a repeated failure is scored once", () => {
   const snapshot = evidence();
   snapshot.cities[0].categories[0] = { ...snapshot.cities[0].categories[0], state: "attention", recordedFailure: true, lastSuccessAt: at(-60), attemptsSinceSuccess: 2 };
-  const first = advanceKongCompany({ ...start(), evidence: snapshot });
+  const first = advanceKongCareers({ ...start(), evidence: snapshot });
   assert.equal(first.collaboration.totalFindings, 1);
   assert.equal(first.collaboration.exchanges[0].proposal.action, "review_reassignment");
-  const again = advanceKongCompany({ ...start(), evidence: snapshot, company: first.company, evidenceAt: first.evidenceAt });
+  const again = advanceKongCareers({ ...start(), evidence: snapshot, company: first.company, evidenceAt: first.evidenceAt });
   assert.deepEqual(again.company, first.company);
   assert.deepEqual(again.collaboration, first.collaboration);
 });
@@ -86,6 +86,7 @@ test("legacy KONG careers and academy are quarantined, never replayed or advance
   // Preserve a verified local career while quarantining the unproven KONG history.
   old.company = advanceCompany(old.company, { now: NOW, statuses: { "kong-city:miami:clubs": { state: "working", label: "legacy" }, radio: { state: "working", label: "radio", evidenceId: "fixture:radio:verified-completed-run" } }, roles: {} }).state;
   old.company.careers["kong-city:miami:clubs"].points = 1234;
+  delete old.company.kongCareersMerged; // written before KONG careers moved into the main company
   old.company.trainees.push({ id: "old-kong-helper", forAgentId: "kong-city:miami:clubs", role: "Clubs", nickname: "Old helper", startedAt: at(-60), modulesDone: ["old-module"], knowledge: ["Old knowledge"] });
   old.proposals.push({ key: "new_agent:helper-kong-city:miami:clubs", kind: "new_agent", owner: "agent-factory", title: "Contratar helper", description: "legacy", evidence: [], handoffBrief: "legacy", createdAt: at(-60), status: "applied" });
   let raw = JSON.stringify(old);
@@ -110,7 +111,7 @@ test("missing and disabled city jobs do not acquire invented life or careers", (
     const snapshot = evidence();
     if (disabled) snapshot.cityAgentsEnabled = false;
     else snapshot.cities[0].categories = [];
-    const result = advanceKongCompany({ ...start(), evidence: snapshot });
+    const result = advanceKongCareers({ ...start(), evidence: snapshot });
     assert.deepEqual(Object.keys(result.company.careers).filter(id => id.startsWith("kong-city:")), []);
   }
 });
@@ -119,7 +120,7 @@ test("declared central roles without a verified result stay unscored", () => {
   for (const state of ["unknown", "disabled", "running"] as const) {
     const snapshot = evidence();
     snapshot.agents[0] = { ...snapshot.agents[0], state, lastRunAt: null };
-    const result = advanceKongCompany({ ...start(), evidence: snapshot });
+    const result = advanceKongCareers({ ...start(), evidence: snapshot });
     assert.equal(result.company.careers["kong:venues"], undefined);
   }
 });
@@ -133,60 +134,60 @@ function warned(overrides: Record<string, unknown> = {}) {
 const CLUBS = "kong-city:miami:clubs";
 
 test("a completed round flagged as attention for coverage incidents is credited once", () => {
-  const first = advanceKongCompany({ ...start(), evidence: warned() });
+  const first = advanceKongCareers({ ...start(), evidence: warned() });
   assert.equal(first.company.careers[CLUBS].points, 10);
   assert.equal(first.evidenceAt[CLUBS], at(-1));
-  const again = advanceKongCompany({ ...start(), evidence: warned(), company: first.company, evidenceAt: first.evidenceAt });
+  const again = advanceKongCareers({ ...start(), evidence: warned(), company: first.company, evidenceAt: first.evidenceAt });
   assert.deepEqual(again.company, first.company);
   // Even when the success stamp is written a few ms after the completion stamp (same round).
-  const next = advanceKongCompany({ ...start(), evidence: warned({ lastRunAt: at(0), lastSuccessAt: new Date(NOW + 5).toISOString(), lastStartedAt: at(-0.5) }), company: first.company, evidenceAt: first.evidenceAt, now: NOW + 10 });
+  const next = advanceKongCareers({ ...start(), evidence: warned({ lastRunAt: at(0), lastSuccessAt: new Date(NOW + 5).toISOString(), lastStartedAt: at(-0.5) }), company: first.company, evidenceAt: first.evidenceAt, now: NOW + 10 });
   assert.equal(next.company.careers[CLUBS].points, 20);
 });
 
 test("a partial round limited by HTTP 429 is credited when it completed, and a stamped error on the same round does not drain", () => {
-  const limited = advanceKongCompany({ ...start(), evidence: warned({ issues: ["Incidencia registrada. Revisa el detalle en KONG.", "La fuente limitó las consultas (HTTP 429)."] }) });
+  const limited = advanceKongCareers({ ...start(), evidence: warned({ issues: ["Incidencia registrada. Revisa el detalle en KONG.", "La fuente limitó las consultas (HTTP 429)."] }) });
   assert.equal(limited.company.careers[CLUBS].points, 10);
-  const stamped = advanceKongCompany({ ...start(), evidence: warned({ recordedFailure: true }) });
+  const stamped = advanceKongCareers({ ...start(), evidence: warned({ recordedFailure: true }) });
   assert.equal(stamped.company.careers[CLUBS].points, 10);
   assert.equal(stamped.company.careers[CLUBS].battery, 86);
 });
 
 test("a real failure without a new success drains battery once", () => {
-  const base = advanceKongCompany({ ...start(), evidence: warned() });
+  const base = advanceKongCareers({ ...start(), evidence: warned() });
   for (const failure of [{ recordedFailure: true }, { recordedFailure: false, attemptsSinceSuccess: 1 }]) {
     const failed = warned({ ...failure, lastStartedAt: at(-0.5), lastRunAt: at(0), lastSuccessAt: at(-1 - 60) });
-    const first = advanceKongCompany({ ...start(), evidence: failed, company: base.company, evidenceAt: { [CLUBS]: at(-61) } });
+    const first = advanceKongCareers({ ...start(), evidence: failed, company: base.company, evidenceAt: { [CLUBS]: at(-61) } });
     assert.equal(first.company.careers[CLUBS].battery, base.company.careers[CLUBS].battery - 10);
     assert.equal(first.company.careers[CLUBS].points, 5);
-    const again = advanceKongCompany({ ...start(), evidence: failed, company: first.company, evidenceAt: first.evidenceAt });
+    const again = advanceKongCareers({ ...start(), evidence: failed, company: first.company, evidenceAt: first.evidenceAt });
     assert.deepEqual(again.company, first.company);
   }
   // A closed attempt with no success, no error and no pending attempts proves nothing either way.
-  const unclear = advanceKongCompany({ ...start(), evidence: warned({ lastRunAt: at(0), lastSuccessAt: at(-61), lastStartedAt: at(-0.5) }), company: base.company, evidenceAt: { [CLUBS]: at(-61) } });
+  const unclear = advanceKongCareers({ ...start(), evidence: warned({ lastRunAt: at(0), lastSuccessAt: at(-61), lastStartedAt: at(-0.5) }), company: base.company, evidenceAt: { [CLUBS]: at(-61) } });
   assert.deepEqual(unclear.company, base.company);
 });
 
 test("a missed turn is penalized once per nextRunAt, and a later real run still earns credit", () => {
-  const base = advanceKongCompany({ ...start(), evidence: warned() });
+  const base = advanceKongCareers({ ...start(), evidence: warned() });
   const missed = warned({ lastStartedAt: at(-300), lastRunAt: at(-299), lastSuccessAt: at(-299), nextRunAt: at(-239) });
   const ledger = { [CLUBS]: at(-299) };
-  const first = advanceKongCompany({ ...start(), evidence: missed, company: base.company, evidenceAt: ledger });
+  const first = advanceKongCareers({ ...start(), evidence: missed, company: base.company, evidenceAt: ledger });
   assert.equal(first.company.careers[CLUBS].points, 8);
   assert.equal(first.company.careers[CLUBS].battery, base.company.careers[CLUBS].battery - 3);
   assert.equal(first.evidenceAt[CLUBS], at(-239));
-  const again = advanceKongCompany({ ...start(), evidence: missed, company: first.company, evidenceAt: first.evidenceAt });
+  const again = advanceKongCareers({ ...start(), evidence: missed, company: first.company, evidenceAt: first.evidenceAt });
   assert.deepEqual(again.company, first.company);
   // Late by less than three hours is not a missed turn.
-  const late = advanceKongCompany({ ...start(), evidence: warned({ lastStartedAt: at(-200), lastRunAt: at(-199), lastSuccessAt: at(-199), nextRunAt: at(-139) }), company: base.company, evidenceAt: { [CLUBS]: at(-199) } });
+  const late = advanceKongCareers({ ...start(), evidence: warned({ lastStartedAt: at(-200), lastRunAt: at(-199), lastSuccessAt: at(-199), nextRunAt: at(-139) }), company: base.company, evidenceAt: { [CLUBS]: at(-199) } });
   assert.deepEqual(late.company, base.company);
-  const recovered = advanceKongCompany({ ...start(), evidence: warned({ lastStartedAt: at(-1), lastRunAt: at(-0.5), lastSuccessAt: at(-0.5), nextRunAt: at(59) }), company: first.company, evidenceAt: first.evidenceAt });
+  const recovered = advanceKongCareers({ ...start(), evidence: warned({ lastStartedAt: at(-1), lastRunAt: at(-0.5), lastSuccessAt: at(-0.5), nextRunAt: at(59) }), company: first.company, evidenceAt: first.evidenceAt });
   assert.equal(recovered.company.careers[CLUBS].points, 18);
 });
 
 test("a stale snapshot credits and penalizes nothing, including warned, failed or missed jobs", () => {
-  const base = advanceKongCompany({ ...start(), evidence: warned() });
+  const base = advanceKongCareers({ ...start(), evidence: warned() });
   for (const snapshot of [warned({ lastRunAt: at(0), lastSuccessAt: at(0) }), warned({ recordedFailure: true, lastRunAt: at(0), lastSuccessAt: at(-61) }), warned({ nextRunAt: at(-239), lastRunAt: at(-299), lastSuccessAt: at(-299), lastStartedAt: at(-300) })]) {
-    const result = advanceKongCompany({ company: base.company, evidenceAt: base.evidenceAt, evidence: snapshot, now: NOW + 6 * 60000 });
+    const result = advanceKongCareers({ company: base.company, evidenceAt: base.evidenceAt, evidence: snapshot, now: NOW + 6 * 60000 });
     assert.deepEqual(result.company, base.company);
     assert.deepEqual(result.evidenceAt, base.evidenceAt);
   }
@@ -194,11 +195,11 @@ test("a stale snapshot credits and penalizes nothing, including warned, failed o
 
 test("central departments reporting healthy with report notes are credited; blockers and attention are not", () => {
   const notes = evidence(); notes.agents[0].issues = ["Cobertura parcial"];
-  assert.equal(advanceKongCompany({ ...start(), evidence: notes }).company.careers["kong:venues"].points, 10);
+  assert.equal(advanceKongCareers({ ...start(), evidence: notes }).company.careers["kong:venues"].points, 10);
   const blocked = evidence(); blocked.agents[0].blocker = "Falta credencial";
-  assert.equal(advanceKongCompany({ ...start(), evidence: blocked }).company.careers["kong:venues"], undefined);
+  assert.equal(advanceKongCareers({ ...start(), evidence: blocked }).company.careers["kong:venues"], undefined);
   const attention = evidence(); attention.agents[0].state = "attention";
-  assert.equal(advanceKongCompany({ ...start(), evidence: attention }).company.careers["kong:venues"], undefined);
+  assert.equal(advanceKongCareers({ ...start(), evidence: attention }).company.careers["kong:venues"], undefined);
 });
 
 test("a transient KONG read failure is retried within the round instead of freezing KONG careers", async () => {

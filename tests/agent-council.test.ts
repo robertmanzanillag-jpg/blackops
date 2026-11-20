@@ -513,7 +513,7 @@ test("order evidence is verified on the server: wrong owner, failed run or reuse
 });
 
 test("single publisher: the supervisor never imports or calls publishing code", async () => {
-  const files = ["server/agent-council.ts", "server/agent-council-routes.ts", "shared/agent-company.ts", "shared/agent-integrations.ts", "shared/agent-live-status.ts", "shared/agent-council.ts", "shared/kong-supervisor.ts", "server/kong-supervisor-conversation.ts", "server/kong-supervisor-routes.ts", "shared/kong-operations.ts", "server/kong-operations.ts", "server/kong-operations-routes.ts"];
+  const files = ["server/agent-council.ts", "server/agent-council-routes.ts", "shared/agent-company.ts", "shared/agent-integrations.ts", "shared/agent-live-status.ts", "shared/agent-council.ts", "shared/kong-supervisor.ts", "server/kong-supervisor-routes.ts", "shared/kong-operations.ts", "server/kong-operations.ts", "server/kong-operations-routes.ts"];
   for (const file of files) {
     const source = await readFile(path.join(process.cwd(), file), "utf8");
     const imports = [...source.matchAll(/(?:from\s+|import\()\s*["']([^"']+)["']/g)].map((match) => match[1]);
@@ -547,17 +547,22 @@ test("two instances never send the same proposal to the Trust Center twice", asy
   assert.deepEqual(submitted, ["skill:skills-truncated"]);
 });
 
-test("the public council view never carries the owner-only KONG conversation", async () => {
-  const council = createAgentCouncil(fakeDeps({ collect: async () => ({}) }).deps);
-  await council.updateKongSupervision(async (current) => ({
-    ...current,
-    messages: [{ id: "r1-user", requestId: "request-0001", agentId: "kong-supervisor", at: new Date(NOW).toISOString(), role: "user", text: "privado" }],
-  }));
+test("the retired KONG supervisor history is kept verbatim, owner-readable and never in the public view", async () => {
+  const legacy = { version: 1, owner: "kong-supervisor", lastRunAt: new Date(NOW).toISOString(),
+    records: [{ agentId: "kong:Venues", task: "review-readiness", checkedAt: new Date(NOW).toISOString(), result: "blocked", reason: "legacy" }],
+    messages: [{ id: "r1-user", requestId: "request-0001", agentId: "kong-supervisor", at: new Date(NOW).toISOString(), role: "user", text: "privado" }] };
+  let raw: string | null = JSON.stringify({ ...emptyCouncilState(), kongSupervision: legacy });
+  const council = createAgentCouncil({ now: () => NOW, userId: () => "owner", readState: async () => raw, writeState: async (value: string) => { raw = value; },
+    collect: async () => ({}), submitProposal: async () => "proposal", getPendingActionStatus: async () => null, fetchLatestRelease: async () => null, log: () => {} });
+  await council.runCycle();
   const view = await council.view();
-  assert.equal((view.kongSupervision as { messages?: unknown }).messages, undefined);
-  assert.ok(Array.isArray(view.kongSupervision.records));
-  assert.equal((await council.readKongSupervision()).messages.length, 1, "the owner route still reads it");
+  assert.equal("kongSupervision" in view, false);
   assert.doesNotMatch(JSON.stringify(view), /privado/);
+  assert.deepEqual(JSON.parse(raw!).kongSupervision, legacy, "stored history is never deleted or advanced");
+  const archive = await council.readLegacyKongSupervision();
+  assert.equal(archive.archived, true);
+  assert.equal(archive.messages[0].text, "privado");
+  assert.equal(archive.records[0].result, "blocked");
 });
 
 test("a hung read never freezes the council: the round fails with a clear error and the next one runs", async () => {

@@ -37,3 +37,16 @@ test("tampered response/usage and reused provider sessions are rejected",async()
 test("reviewer already running reserves concurrency and daily budget holds across roles",async()=>{
  const h=setup();h.company.careers.github={generation:1};h.company.academyJobs=[{status:"running"}];const r=createRoleAcademyRunner({...h,dailyPairs:1});await r.tick();assert.equal(h.calls.length,0);h.company.academyJobs=[];await r.tick();await r.tick();assert.equal(h.calls.length,2);assert.equal(h.state().roleAcademy.jobs.length,1);
 });
+
+test("owner domain pause skips commercial cohorts without changing their history or blocking code study",async()=>{
+ const previous=process.env.CEO_PAUSED_DOMAINS;process.env.CEO_PAUSED_DOMAINS="websites,dropshipping";
+ try{
+  const h=setup();h.company.careers.revenue={generation:1};h.company.careers.dropshipping={generation:1};
+  const runner=createRoleAcademyRunner({...h,dailyPairs:14});await runner.tick();await runner.tick();
+  assert.equal(h.calls.length,2);assert.deepEqual(h.state().roleAcademy.jobs.map((j:any)=>j.role),["code"]);
+  assert.equal(roleAcademySummary(h.state().roleAcademy).find(r=>r.role==="revenue")!.paused,true);
+  const history=structuredClone(h.state().roleAcademy.jobs);process.env.CEO_PAUSED_DOMAINS="";
+  await runner.tick();assert.equal(h.calls.length,4);assert.deepEqual(h.state().roleAcademy.jobs.slice(0,1),history);
+  assert.equal(h.state().roleAcademy.jobs.at(-1).role,"revenue");
+ }finally{if(previous===undefined)delete process.env.CEO_PAUSED_DOMAINS;else process.env.CEO_PAUSED_DOMAINS=previous;}
+});

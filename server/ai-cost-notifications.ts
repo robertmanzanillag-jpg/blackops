@@ -1,4 +1,4 @@
-type AiProvider = "openai" | "gemini";
+type AiProvider = "openai" | "gemini" | "deepseek";
 
 interface TokenCostInput {
   provider: AiProvider;
@@ -67,10 +67,19 @@ function geminiTokenRates(model: string): { input: number; output: number } {
   };
 }
 
+// DeepSeek list prices at peak hours (off-peak is half): conservative.
+function deepSeekTokenRates(model: string): { input: number; output: number } {
+  return model.toLowerCase().includes("pro")
+    ? { input: readUsdEnv("BLACKOPS_DEEPSEEK_PRO_INPUT_USD_PER_1M", 1.32), output: readUsdEnv("BLACKOPS_DEEPSEEK_PRO_OUTPUT_USD_PER_1M", 3.96) }
+    : { input: readUsdEnv("BLACKOPS_DEEPSEEK_INPUT_USD_PER_1M", 0.3), output: readUsdEnv("BLACKOPS_DEEPSEEK_OUTPUT_USD_PER_1M", 1.2) };
+}
+
 export function estimateTokenApiCostUsd(input: TokenCostInput): number {
   const rates = input.provider === "openai"
     ? openAiTokenRates(input.model)
-    : geminiTokenRates(input.model);
+    : input.provider === "deepseek"
+      ? deepSeekTokenRates(input.model)
+      : geminiTokenRates(input.model);
   const inputTokens = Math.max(0, input.inputTokens || 0);
   const outputTokens = Math.max(0, input.outputTokens || 0);
   return roundUsd(((inputTokens / 1_000_000) * rates.input) + ((outputTokens / 1_000_000) * rates.output));

@@ -1,3 +1,5 @@
+import {configuredFactoryApiPrice,defaultFactoryApiInvocation} from "./factory-api-invocation";
+import {guardFactoryOpenAiFetch} from "./factory-api-sdk";
 import { createHash } from "node:crypto";
 import type { createAgentCouncil } from "./agent-council";
 import { createOfficeOpenAI } from "./office-openai";
@@ -14,6 +16,7 @@ type Council = Pick<ReturnType<typeof createAgentCouncil>, "updateOfficeExecutio
 /** Private worker wiring. No HTTP endpoint can submit a policy or grade. */
 export function createOfficeExecution(council: Council, env: NodeJS.ProcessEnv = process.env, now = Date.now,
   deps: { fetch?: typeof fetch; loadPr?: NonNullable<Parameters<typeof createOfficeRuntime>[0]>["loadPr"];
+    factoryInvocation?: ReturnType<typeof import("./factory-api-invocation").createFactoryApiInvocation>;
     sharedCredits?: Awaited<ReturnType<typeof loadSharedCreditRuntime>> } = {}) {
   const openai = env.OFFICE_REVIEW_PROVIDER === "openai";
   const budget = openai ? createOfficeTokenBudget({ limit: Number(env.OFFICE_OPENAI_MONTHLY_TOKEN_LIMIT),
@@ -28,12 +31,15 @@ export function createOfficeExecution(council: Council, env: NodeJS.ProcessEnv =
       const assigned = executionId || activeExecutionId;
       if (!assigned) throw Error("OFFICE_CREDIT_ASSIGNMENT_REQUIRED");
       const shared = deps.sharedCredits || await loadSharedCreditRuntime(env, () => new Date(now()));
-      return createCreditLimitedOfficeRun({ ...shared, env, now: () => new Date(now()), fetch: deps.fetch,
+      return createCreditLimitedOfficeRun({ ...shared, factoryInvocation:deps.factoryInvocation, env, now: () => new Date(now()), fetch: deps.fetch,
         authorizeTokens: limits => budget!.reserve(limits), recordTokens: (id, metadata) => budget!.recordUsage(id, metadata),
       })(prompt, assigned);
     }
+    const factoryPrice=configuredFactoryApiPrice("openai",env.OFFICE_OPENAI_MODEL??"",env.FACTORY_API_PRICING_CONFIG);
+    const monetary=deps.factoryInvocation??await defaultFactoryApiInvocation();
+    await monetary.preflight();
     let reservation: string | undefined;
-    const provider = createOfficeOpenAI({ env, fetch: deps.fetch,
+    const provider = createOfficeOpenAI({ env, fetch: guardFactoryOpenAiFetch(deps.fetch??fetch,{executionId:executionId||activeExecutionId,consumer:"office",env,price:factoryPrice,invoke:monetary}),
       authorize: async limits => { reservation = await budget!.reserve(limits); },
       recordUsage: async metadata => { if (!reservation) throw new Error("Missing budget reservation"); await budget!.recordUsage(reservation, metadata); },
     });

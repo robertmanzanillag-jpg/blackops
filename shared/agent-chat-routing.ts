@@ -102,6 +102,29 @@ const APPROVAL_PATTERNS = [
   /\b(reembols|refund)/, /\bescr[ií]bele\b/, /\bescribe(le|les)? (a|al)\b/, /(?<!se )\bllam(a|ar)\s+(a|al)\b/, /\bllam(ale|arle|ales|arles)\b/, new RegExp(`\\bcall ${WHO}`), /\btext (him|her|them)\b/,
 ];
 
+// Removing duplicates of KONG's own records (only when the text says duplicados/duplicate) is data upkeep KONG does on
+// Robert's direct order; it is not an action that leaves KONG. Everything else in the list still is.
+const DATA_EDIT_PATTERNS = new Set(["\\bborr(a|ar)\\b", "\\bdelete\\b", "\\belimin(a|ar)\\b"]);
+/** An order KONG must not receive from the office chat: publish, pay, contact, deploy, spend… (pure; tested). */
+export function isExternalActionForKong(text: string): boolean {
+  const normalized = normalizeChatText(text);
+  const duplicates = /\b(duplicad[oa]s?|duplicates?|duplicated|repetid[oa]s?)\b/.test(normalized);
+  return APPROVAL_PATTERNS.some(pattern => !(duplicates && DATA_EDIT_PATTERNS.has(pattern.source)) && pattern.test(normalized));
+}
+
+// Office desk ids → KONG agent profile ids (kong-nightlife server/kong-ceo/agent-chat/registry.ts).
+export const KONG_DESK_PROFILE: Record<string, string> = {
+  "kong:Venues": "kong:venue_deals",
+  "kong:Promoters + Mesas": "kong:promoters_partnerships",
+  "kong:Kong Legal": "kong:legal_security_compliance",
+  "kong:KONG AI": "kong:kong_ai_chat",
+};
+export const KONG_ORDER_MAX_TEXT = 1000;
+/** Same shapes KONG's parseOfficeAgentId accepts (after mapping office desk ids). */
+export const isKongOrderAgentShape = (id: string) => /^kong:[a-z_]{1,60}$/.test(id) || /^kong-city:[a-z-]{1,60}(:[a-z]{1,30})?$/.test(id);
+/** An office agent id whose orders can go to KONG (client and server share this). */
+export const isKongOrderAgent = (id: string) => isKongOrderAgentShape(KONG_DESK_PROFILE[id] ?? id);
+
 export type AgentChatIntent = "help" | "status" | "orders" | "last_work" | "handoffs" | "task" | "question";
 export type AgentChatRoute = {
   intent: AgentChatIntent;

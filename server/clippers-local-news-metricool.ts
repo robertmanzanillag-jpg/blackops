@@ -802,6 +802,14 @@ async function discoverProfiles(
   }
 }
 
+// These brands are assigned to the gaming portfolio. Neither a matching news
+// alias nor an old explicit environment override may route news to them.
+const GAMING_PORTFOLIO_BRAND_IDS = new Set(["6431685", "6431687", "6591612", "6595747"]);
+
+function newsProfiles(profiles: ProfileCandidate[]): ProfileCandidate[] {
+  return profiles.filter(profile => !GAMING_PORTFOLIO_BRAND_IDS.has(profile.blogId));
+}
+
 const NEWS_LANE_CONFIG: Record<ClipperLocalNewsLane, { label: string; aliases: string[]; overrideKey: "METRICOOL_MIAMI_NEWS_BLOG_ID" | "METRICOOL_NY_NEWS_BLOG_ID" }> = {
   "miami-news": {
     label: "Miami News",
@@ -814,6 +822,12 @@ const NEWS_LANE_CONFIG: Record<ClipperLocalNewsLane, { label: string; aliases: s
     overrideKey: "METRICOOL_NY_NEWS_BLOG_ID",
   },
 };
+
+export const LOCAL_NEWS_SENDER_RETIRED_REASON = "local_news_sender_retired_streamer_pages";
+/** True unless CLIPPERS_LOCAL_NEWS_SENDER_ENABLED is exactly "true". */
+export function localNewsSenderRetired(env: Record<string, string | undefined> = process.env): boolean {
+  return env.CLIPPERS_LOCAL_NEWS_SENDER_ENABLED !== "true";
+}
 
 export async function getClipperLocalNewsMetricoolReadiness(
   options: Pick<ClipperLocalNewsMetricoolOptions, "env" | "fetch" | "readPolicy"> = {},
@@ -838,6 +852,7 @@ export async function getClipperLocalNewsMetricoolReadiness(
     ])),
   });
   if (!hasRealValue(token) || !hasRealValue(userId)) return blocked("configurar credenciales de Metricool");
+  if (localNewsSenderRetired(env)) return blocked("noticias locales retiradas: marcas NY/Miami ahora son páginas de clips de streamers");
   const policy = await (options.readPolicy || readLocalNewsDeliveryPolicy)();
   if (policy.paused) return blocked("entregas de noticias pausadas");
 
@@ -848,8 +863,8 @@ export async function getClipperLocalNewsMetricoolReadiness(
     const config = NEWS_LANE_CONFIG[lane];
     const override = env[config.overrideKey];
     const profile = hasRealValue(override)
-      ? profiles.find((candidate) => candidate.blogId === override.trim() && config.aliases.includes(candidate.label))
-      : profiles.find((candidate) => config.aliases.includes(candidate.label));
+      ? newsProfiles(profiles).find((candidate) => candidate.blogId === override.trim() && config.aliases.includes(candidate.label))
+      : newsProfiles(profiles).find((candidate) => config.aliases.includes(candidate.label));
     return (["facebook", "x"] as ClipperLocalNewsPlatform[]).map((platform) => ({
       lane,
       platform,
@@ -895,6 +910,14 @@ export async function deliverClipperLocalNewsToMetricool(
   const userId = env.METRICOOL_USER_ID;
   if (!hasRealValue(token) || !hasRealValue(userId)) {
     result.reason = "missing_metricool_credentials";
+    return result;
+  }
+  // 2026-11-19 owner decision: the NY/Miami Metricool brands are now streamer clip pages. The
+  // local-news autopilot sender is retired; ledgers stay on disk read-only. Re-enabling needs an
+  // explicit env opt-in so an old deployment cannot silently resume news posts.
+  if (localNewsSenderRetired(env)) {
+    result.status = "paused";
+    result.reason = LOCAL_NEWS_SENDER_RETIRED_REASON;
     return result;
   }
 
@@ -1005,13 +1028,13 @@ export async function deliverClipperLocalNewsToMetricool(
     for (const lane of Object.keys(laneConfig) as ClipperLocalNewsLane[]) {
       const config = laneConfig[lane];
       if (hasRealValue(config.override)) {
-        const match = profiles?.find(profile => profile.blogId === config.override!.trim()
+        const match = newsProfiles(profiles ?? []).find(profile => profile.blogId === config.override!.trim()
           && config.aliases.includes(profile.label));
         if (match) laneProfiles.set(lane, match);
         else if (safeItems.some(item => item.lane === lane)) result.blockedLanes.push(lane);
         continue;
       }
-      const match = profiles?.find((profile) => config.aliases.includes(profile.label));
+      const match = newsProfiles(profiles ?? []).find((profile) => config.aliases.includes(profile.label));
       if (match) laneProfiles.set(lane, match);
       else if (safeItems.some((item) => item.lane === lane)) result.blockedLanes.push(lane);
     }

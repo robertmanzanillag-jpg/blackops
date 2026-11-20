@@ -242,20 +242,26 @@ type LooseCompany = { careers?: Record<string, { memory?: unknown[] } & Record<s
  * Robert: order texts and memories of non-Black-Room agents, company events, debates/proposals/
  * lessons about other agents and their status details.
  */
+/** Careers outside the Black Room scope keep only scores: no memory, guidance, learned skills or vida internals. */
+function outsideScopeCareer<C extends Record<string, unknown>>(career: C): C {
+  const { vitality: _vitality, ...rest } = career as Record<string, unknown>;
+  return { ...rest, memory: [], reviewGuidance: [], skills: [] } as unknown as C;
+}
+
 export function redactCouncilViewForPartner<T extends Record<string, unknown>>(view: T): T {
   const out: Record<string, unknown> = { ...view };
   const company = view.company as LooseCompany | undefined;
   if (company && typeof company === "object") {
     const careers: Record<string, unknown> = {};
     for (const [id, career] of Object.entries(company.careers || {})) {
-      careers[id] = isBlackRoomScopeAgent(id) ? career : { ...career, memory: [], reviewGuidance: [] };
+      careers[id] = isBlackRoomScopeAgent(id) ? career : outsideScopeCareer(career);
     }
     out.company = {
       ...company,
       careers,
       // Fired agents keep their full memory (Robert's order texts, finance/KONG status labels).
       retiredCareers: (company.retiredCareers || []).map((career) =>
-        isBlackRoomScopeAgent(career?.agentId) ? career : { ...career, memory: [], reviewGuidance: [] }),
+        isBlackRoomScopeAgent(career?.agentId) ? career : outsideScopeCareer(career)),
       orders: (company.orders || []).filter((order) => isBlackRoomOnlyOrder(order)),
       events: [],
       trainees: (company.trainees || []).filter((trainee) => isBlackRoomScopeAgent(trainee.forAgentId)),
@@ -267,6 +273,8 @@ export function redactCouncilViewForPartner<T extends Record<string, unknown>>(v
   if (Array.isArray(view.resolvedDebates)) out.resolvedDebates = view.resolvedDebates.filter(bySubject("subject"));
   if (Array.isArray(view.proposals)) out.proposals = view.proposals.filter(bySubject("owner"));
   if (Array.isArray(view.lessons)) out.lessons = view.lessons.filter(bySubject("subject"));
+  if (Array.isArray(view.vitality)) out.vitality = view.vitality.filter(bySubject("agentId"));
+  if ("clippersAcademy" in view) out.clippersAcademy = null;
   if (view.overrides && typeof view.overrides === "object") {
     out.overrides = Object.fromEntries(Object.entries(view.overrides as Record<string, unknown>).filter(([id]) => isBlackRoomScopeAgent(id)));
   }

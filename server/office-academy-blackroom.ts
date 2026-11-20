@@ -1,3 +1,4 @@
+import { ceoTrainingRolePaused } from "./ceo-domain-policy";
 import { createHash, randomUUID } from "node:crypto";
 import { recordAcademyAssessment, type BlackRoomAcademyJob, type CompanyState } from "../shared/agent-company";
 import { BLACKROOM_ACADEMY_ROLES, isBlackRoomReplacement } from "../shared/blackroom-academy";
@@ -62,7 +63,7 @@ export function createBlackRoomAcademyRunner(options: {
         if (jobs.filter((job) => start - Date.parse(job.startedAt) < DAY_MS).length >= options.dailyPairs) return next;
         // Fair order: replacements first (a fired job is empty), then the least evaluated role.
         const candidates = company.trainees
-          .filter((trainee) => !trainee.graduatedAt && !trainee.evaluationClosedAt && BLACKROOM_ACADEMY_ROLES.includes(trainee.forAgentId))
+          .filter((trainee) => !ceoTrainingRolePaused(trainee.forAgentId) && !trainee.graduatedAt && !trainee.evaluationClosedAt && BLACKROOM_ACADEMY_ROLES.includes(trainee.forAgentId))
           .sort((a, b) => Number(isBlackRoomReplacement(company, b)) - Number(isBlackRoomReplacement(company, a))
             || jobs.filter((job) => job.role === a.forAgentId).length - jobs.filter((job) => job.role === b.forAgentId).length
             || a.id.localeCompare(b.id));

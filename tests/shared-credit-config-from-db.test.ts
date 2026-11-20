@@ -97,3 +97,45 @@ test("CLI failure prints a static code, never the connection string", () => {
   for (const secret of ["leakuser", "leakpassword123", "leakdb", "127.0.0.1", "org:a"]) assert.ok(!printed.includes(secret), secret);
   assert.match(result.stderr.trim(), /^[A-Z_:]+[A-Za-z0-9_ :.-]*$/);
 });
+
+test("workflows prefer the derived config for the configured scope and keep the secret as fallback", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const config = await readFile(new URL("../.github/office-config.env", import.meta.url), "utf8");
+  assert.match(config, /^OFFICE_SHARED_CREDIT_SCOPE=openai-2026-11-19$/m);
+  assert.match(config, /^OFFICE_SHARED_CREDIT_PRICING_MODEL=gpt-6.1-sol$/m);
+  assert.match(config, /^OFFICE_SHARED_CREDIT_PRICING_VALID_UNTIL=2026-12-31T00:00:00Z$/m);
+  for (const [file, count] of [["office-worker-cloud.yml", 2], ["software-factory-cloud.yml", 1]] as const) {
+    const workflow = await readFile(new URL(`../.github/workflows/${file}`, import.meta.url), "utf8");
+    const steps = workflow.split(/^      - /m).filter(step => step.startsWith("name: Install private configuration outside the checkout\n"));
+    assert.equal(steps.length, count, file);
+    for (const step of steps) {
+      // Scope and pricing come from repository variables, else .github/office-config.env (checked below).
+      assert.match(step, /\$\{OFFICE_SHARED_CREDIT_SCOPE:-\}/);
+      const derive = step.indexOf("script/shared-credit-config-from-db.ts \"--out="), secret = step.indexOf("printf '%s' \"$OPENAI_SHARED_CREDIT_CONFIG_JSON\"");
+      assert.ok(derive > 0 && secret > derive, `${file}: derived config is tried before the secret`);
+      assert.doesNotMatch(step, /OPENAI_API_KEY|GITHUB_TOKEN/);
+    }
+  }
+});
+
+test("credit-new is confirm-gated, idempotent by scope, and never prints the CONFIG_JSON line", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const workflow = await readFile(new URL("../.github/workflows/factory-ops.yml", import.meta.url), "utf8");
+  assert.match(workflow, /inputs.action == 'credit-new'\) && inputs.confirm != 'APLICAR'/);
+  const step = workflow.split(/^      - /m).find(step => step.startsWith("name: Create the new shared credit ledger"))!;
+  assert.match(step, /if: inputs.action == 'credit-new' && inputs.confirm == 'APLICAR'/);
+  assert.match(step, /shared-credit-grant.ts new --scope=openai-2026-11-19 --id=grant-2026-11-19-200/);
+  assert.match(step, /--usd=200 --expires=2026-12-19T23:59:59Z --evidence=owner-approved-2026-11-19/);
+  assert.match(step, /--apply > "\$out"/);
+  assert.doesNotMatch(step, /OPENAI_API_KEY|GITHUB_TOKEN|cat "\$out"/);
+  // Run the step's own filter on a sample of the tool's real output.
+  const filter = /node -e '([\s\S]*?)' "\$out"/.exec(step)![1];
+  const dir = mkdtempSync(join(tmpdir(), "credit-new-"));
+  const out = join(dir, "out");
+  const { writeFileSync } = await import("node:fs");
+  writeFileSync(out, `${JSON.stringify({ applied: true, status: { grantId: "grant-2026-11-19-200", availableMicroUsd: 200_000_000, uncertain: false } })}\nCONFIG_JSON={"grant":{"verificationEvidenceId":"leak-marker"}}\n`);
+  const result = spawnSync(process.execPath, ["-e", filter, out], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.doesNotMatch(result.stdout, /CONFIG_JSON|leak-marker/);
+  assert.equal(JSON.parse(result.stdout.trim()).status.availableMicroUsd, 200_000_000);
+});

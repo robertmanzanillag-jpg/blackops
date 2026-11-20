@@ -78,6 +78,9 @@ test("factory HTTP requires real owner and same origin; forbids policy/evidence 
   assert.equal(response.headers.get("cache-control"), "no-store");
   const view = await response.json();
   assert.equal(view.budget.remainingCents, 7875);
+  assert.equal(view.apiBudget.remainingMicroUsd, null);
+  assert.equal(view.apiBudget.paidAdmissionReady, false);
+  assert.equal(view.apiBudget.reason, "FACTORY_API_AUTHORITY_UNAVAILABLE");
   assert.equal(view.readiness, "blocked");
   assert.equal(view.paused, false);
   assert.doesNotMatch(JSON.stringify(view), /DO-NOT-EXPOSE|private-owner/);

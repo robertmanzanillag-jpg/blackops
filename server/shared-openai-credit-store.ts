@@ -25,6 +25,18 @@ export function createSharedCreditTransaction(store: DurableStore, accountScope:
   };
 }
 
+/** Plain read of the same namespace (no lock, no write) for read-only views such as the pacer. */
+export function createSharedCreditRead(store: Pick<ReturnType<typeof createCouncilStore>, "read">, accountScope: string) {
+  const owner = namespace(accountScope);
+  return async (): Promise<SharedCreditState> => {
+    const raw = await store.read(owner);
+    if (raw === null) throw Error("CREDIT_STORAGE_NOT_PROVISIONED");
+    const state = JSON.parse(raw) as SharedCreditState;
+    if (state.grant && state.grant.accountScope !== accountScope) throw Error("CREDIT_STORAGE_SCOPE_MISMATCH");
+    return state;
+  };
+}
+
 /** Operator-only first installation. Do not call from startup, retry/recovery,
  * or requests: a missing previously initialized ledger must remain blocked. */
 export async function provisionSharedCreditStorage(store: DurableStore, accountScope: string): Promise<void> {

@@ -832,6 +832,22 @@ export const defaultCeoChatOrders: CeoChatOrders = {
 export const defaultCeoChatAi: CeoChatAi = async (prompt, purpose, userId) => {
   if (process.env.BLACKROOM_CEO_CHAT_AI?.trim().toLowerCase() === "false") return null;
   const { hasRealValue } = await import("./ceo-doctor-cli");
+  if ((await import("./ai-model-router")).deepSeekRouted()) {
+    // AI_ROUTER_ENABLED=true + DeepSeek configured: repetitive tier, DeepSeek first, own OpenAI key as fallback (both capped).
+    try {
+      const [{ routedText }, { estimateTokenApiCostUsd, recordAiApiCostEvent }] = await Promise.all([import("./ai-model-router"), import("./ai-cost-notifications")]);
+      const routed = await routedText({ tier: "repetitive", label: `blackroom-ceo-${purpose}`, prompt, maxTokens: purpose === "classify" ? 8 : 80 });
+      const provider = routed.provider === "openai" ? "openai" : "deepseek";
+      await recordAiApiCostEvent({
+        userId, provider, model: routed.model,
+        operation: purpose === "classify" ? "CEO Black Room: clasificar pedido" : "CEO Black Room: redactar respuesta",
+        estimatedCostUsd: estimateTokenApiCostUsd({ provider, model: routed.model, inputTokens: routed.inputTokens, outputTokens: routed.outputTokens }),
+      }).catch(() => undefined);
+      return routed.text.trim() || null;
+    } catch {
+      return null;
+    }
+  }
   if (!hasRealValue(process.env.AI_INTEGRATIONS_GEMINI_API_KEY)) return null;
   try {
     const [{ getGeminiClient, getGeminiChatModel }, { estimateTokenApiCostUsd, recordAiApiCostEvent }] = await Promise.all([import("./gemini-client"), import("./ai-cost-notifications")]);
