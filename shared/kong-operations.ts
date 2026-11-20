@@ -7,7 +7,7 @@
 // instead of being published twice.
 import { z } from "zod";
 
-// Roles reused from the office (shared/kong-supervisor.ts KONG_WORKERS).
+// Card author ids kept from the retired Supervisor KONG roster (persisted kong-ops records use them).
 export const KONG_CARD_AUTHORS = ["kong:Venues", "kong:Promoters + Mesas"] as const;
 export const KONG_VIDEOS_AGENT = "kong-videos" as const;
 export const KONG_METRICS_AGENT = "kong-metrics" as const;

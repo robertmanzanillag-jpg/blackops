@@ -1,3 +1,4 @@
+import {guardFactoryOpenAiClient} from "./factory-api-sdk";
 import OpenAI from "openai";
 import { hasRealValue } from "./ceo-doctor-cli";
 
@@ -13,7 +14,7 @@ export function getOpenAIClient(): OpenAI {
   }
 
   if (!openaiClient) {
-    openaiClient = new OpenAI({ apiKey });
+    openaiClient = guardFactoryOpenAiClient(new OpenAI({ apiKey, maxRetries:0 }),{provider:"openai",consumer:"other"});
   }
 
   return openaiClient;

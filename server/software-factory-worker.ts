@@ -1,3 +1,4 @@
+import {withFactoryApiParent} from "./factory-api-context";
 import { randomUUID } from "node:crypto";
 import type { FactoryJob, FactoryJobInput, FactoryOutcome } from "./software-factory-store";
 import { configuredSoftwareFactoryStore as softwareFactoryStore } from "./software-factory-store-provider";
@@ -132,7 +133,7 @@ export function createSoftwareFactoryWorker(options: FactoryWorkerOptions = {}) 
         const timeout=setTimeout(() => {quarantined=true;controller.abort();},Math.max(1,deadline-now().getTime())); timeout.unref?.();
         try {
           let result: FactoryAdapterResult;
-          try { result=await adapter.execute(job,{signal:controller.signal,maxCostCents:job.reservedCents-(job.recoveryCents || 0)}); }
+          try { result=await withFactoryApiParent(job,()=>adapter.execute(job,{signal:controller.signal,maxCostCents:job.reservedCents-(job.recoveryCents || 0)}),controller.signal); }
           catch { result={status:"unknown",costCents:0,reason:"FACTORY_EXECUTION_UNCONFIRMED"}; }
           if (quarantined || controller.signal.aborted) { await store.expire(); return { kind: "quarantined" }; }
           try { validateFactoryTransition(job,result); if(job.kind==="deploy" && result.status==="completed" && result.next?.recoveryCents!==requiredRollbackCents)throw new Error("FACTORY_ROLLBACK_ESCROW_REQUIRED"); }

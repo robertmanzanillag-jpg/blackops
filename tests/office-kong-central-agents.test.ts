@@ -11,22 +11,16 @@ const agent = (overrides: Partial<OfficeKongAgent> = {}): OfficeKongAgent => ({
   state: "unknown", lastRunAt: null, nextRunAt: null, blocker: null, nextAction: "Esperar evidencia", issues: [], ...overrides,
 });
 
-test("keeps the five central desks visible and maps only exact KONG Native department identities", () => {
+test("only the video seat remains; placeholder KONG seats are gone (their real agents are snapshot desks)", () => {
   const signals = buildOfficeKongCentralSignals([
     agent({ state: "running", nextRunAt: at(2) }),
     agent({ id: "kong-ai", name: "KONG AI", state: "healthy", lastRunAt: at(-2) }),
-    agent({ id: "promoters", name: "Promoters + Mesas", state: "attention", blocker: "Aviso de cobertura" }),
-    agent({ id: "venues", name: "Venues", kind: "system", state: "running" }),
-    agent({ id: "legal", name: "Kong Legal", state: "disabled" }),
     agent({ id: "unrelated", name: "Videos Kong", kind: "city", state: "running" }),
   ], at(0), now);
-
-  assert.equal(OFFICE_KONG_CENTRAL_SEATS.length, 5);
-  assert.deepEqual(signals.map(item => item.name), ["Videos Kong", "KONG AI", "Promotores + Mesas", "Venues", "Kong Legal"]);
-  assert.deepEqual(signals.map(item => item.signal), ["current", "last-result", "alert", "unverified", "alert"]);
+  assert.deepEqual(OFFICE_KONG_CENTRAL_SEATS.map(seat => seat.id), ["kong-videos"]);
+  assert.deepEqual(signals.map(item => item.name), ["Videos Kong"]);
+  assert.equal(signals[0].signal, "current");
   assert.equal(signals[0].label, "Ejecución actual reportada por KONG Native");
-  assert.equal(signals[1].lastRunAt, at(-2));
-  assert.equal(signals[3].agent, undefined);
 });
 
 test("stale snapshots, duplicate identities and future timestamps never confirm current work", () => {

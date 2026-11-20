@@ -78,6 +78,12 @@ declare module "http" {
   }
 }
 
+// KONG Mirror Lab reports carry up to 8 MB of screenshots (base64): exact-path raw body, verified by HMAC in the handler.
+app.use("/api/integrations/kong/mirror-reports", express.raw({ type: () => true, limit: "12mb" }), (req, _res, next) => {
+  if (Buffer.isBuffer(req.body)) req.rawBody = req.body;
+  next();
+});
+
 app.use(
   express.json({
     limit: '8mb',

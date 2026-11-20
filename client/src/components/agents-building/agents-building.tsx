@@ -268,6 +268,7 @@ const proposalStatusLabel: Record<CouncilProposal["status"], string> = {
   applied: "aplicada",
   rejected: "rechazada",
   not_submitted: "sin enviar (Trust Center no disponible)",
+  withdrawn: "retirada: ya no aplica",
 };
 
 function DebateRoom({ council, names, onRun, running, runError }: { council: ReturnType<typeof useCouncil>; names: Record<string, string>; onRun: () => void; running: boolean; runError: string | null }) {

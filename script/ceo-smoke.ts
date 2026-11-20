@@ -40,7 +40,7 @@ function ensureWritableDir(dir: string): boolean {
 }
 
 async function getExistingTables(databaseUrl: string): Promise<string[]> {
-  const pool = new Pool({ connectionString: databaseUrl });
+  const pool = new Pool({ connectionString: databaseUrl, application_name: "blackops-ceo-check:local" });
   try {
     const result = await pool.query<{ table_name: string }>(
       `

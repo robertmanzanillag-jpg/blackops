@@ -1,3 +1,5 @@
+import {isFactoryAuthorityTransport} from "./software-factory-openai-transport";
+import {guardFactoryOpenAiFetch} from "./factory-api-sdk";
 import { createOpenAiFactoryTextProvider } from "./software-factory-openai";
 import { createOpenAiFactoryPatchGenerator } from "./software-factory-openai-builder";
 import { createGitHubActionsFactoryBuilder } from "./software-factory-remote-builder";
@@ -19,7 +21,7 @@ export function createResponsesFactoryBuild(options: ResponsesFactoryBuildOption
   if (JSON.stringify(repositories) !== JSON.stringify(Object.keys(options.sourcePaths).sort())) {
     throw new Error("FACTORY_SOURCE_REPOSITORIES_MISMATCH");
   }
-  const generateText = createOpenAiFactoryTextProvider(options.model);
+  const generateText = createOpenAiFactoryTextProvider({...options.model,request:isFactoryAuthorityTransport(options.model.request)?options.model.request:guardFactoryOpenAiFetch(options.model.request as typeof fetch,{consumer:"other",requireParent:true})});
   const generatePatch = createOpenAiFactoryPatchGenerator({ generateText,
     sourcePaths: options.sourcePaths, maxOutputTokens: options.maxOutputTokens, patchMode: options.patchMode });
   return createGitHubActionsFactoryBuilder({ ...options.github, generatePatch });

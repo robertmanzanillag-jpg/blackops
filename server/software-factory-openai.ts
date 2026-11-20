@@ -1,3 +1,4 @@
+import {FactoryApiBudgetError} from "./factory-api-invocation";
 /** Stateless text only. Trusted request must authenticate, honor AbortSignal,
  * and perform zero retries. Caller must durably reserve maxCostCents first and
  * retain that reservation on unknown; credits never discount ledger charges. */
@@ -64,7 +65,9 @@ export function createOpenAiFactoryTextProvider(config:{
    if(cost(counted.input_tokens,input.maxOutputTokens)>input.maxCostCents)return blocked("FACTORY_OPENAI_BUDGET_UNAVAILABLE");
    if(!fresh()||controller.signal.aborted)return blocked("FACTORY_OPENAI_ADMISSION_EXPIRED");
    submitted=true;
-   const response=await post("",{...prompt,max_output_tokens:input.maxOutputTokens,store:false,tools:[],stream:false,background:false,service_tier:"default",truncation:"disabled"},byteLimit);
+   // background/truncation are omitted: the API defaults are false/"disabled",
+   // and the Factory monetary gate prices only its reviewed field allow-list.
+   const response=await post("",{...prompt,max_output_tokens:input.maxOutputTokens,store:false,tools:[],stream:false,service_tier:"default"},byteLimit);
    const usage=response?.usage;
    if(response?.object!=="response"||response.model!==c.model||!usage||!nonnegative(usage.input_tokens)||!nonnegative(usage.output_tokens)||!nonnegative(usage.total_tokens)||usage.total_tokens!==usage.input_tokens+usage.output_tokens)throw Error("usage");
    const costCents=cost(usage.input_tokens,usage.output_tokens);
@@ -87,7 +90,11 @@ export function createOpenAiFactoryTextProvider(config:{
    }
    if(!text.trim())return {status:"failed",reason:"FACTORY_OPENAI_EMPTY_TEXT",costCents};
    return {status:"completed",text,costCents,inputTokens:usage.input_tokens,outputTokens:usage.output_tokens};
-  }catch{return submitted?{status:"unknown",reason:"FACTORY_OPENAI_EXECUTION_UNCONFIRMED",costCents:0}:blocked("FACTORY_OPENAI_COUNT_UNAVAILABLE");}
+  }catch(error){
+   // The monetary gate refused before dispatching anything to OpenAI (budget,
+   // pricing, parent fence, reconciliation): nothing executed or billed.
+   if(error instanceof FactoryApiBudgetError&&!error.dispatched&&error.message!=="FACTORY_API_EXECUTION_UNCONFIRMED")return blocked("FACTORY_OPENAI_ADMISSION_UNAVAILABLE");
+   return submitted?{status:"unknown",reason:"FACTORY_OPENAI_EXECUTION_UNCONFIRMED",costCents:0}:blocked("FACTORY_OPENAI_COUNT_UNAVAILABLE");}
   finally{clearTimeout(timer);input.signal.removeEventListener("abort",abort);}
  };
 }

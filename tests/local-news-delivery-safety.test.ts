@@ -47,7 +47,7 @@ async function fixture(items = [reviewed()]) {
   return dir;
 }
 function options(dir: string, fetcher?: typeof fetch): ClipperLocalNewsMetricoolOptions {
-  return { workspaceDir: dir, now, env: { METRICOOL_USER_TOKEN: "fake", METRICOOL_USER_ID: "123", METRICOOL_MIAMI_NEWS_BLOG_ID: "501" },
+  return { workspaceDir: dir, now, env: { METRICOOL_USER_TOKEN: "fake", METRICOOL_USER_ID: "123", METRICOOL_MIAMI_NEWS_BLOG_ID: "501", CLIPPERS_LOCAL_NEWS_SENDER_ENABLED: "true" },
     readPolicy: async () => policy, fetch: fetcher ?? (async input =>
       String(input).includes("simpleProfiles") ? Response.json([{ id: 501, label: "Miami News", facebook: "fake-page", facebookPageId: "fake-page-id", canPublish: true }])
         : Response.json({ id: "fake-accepted" })) };

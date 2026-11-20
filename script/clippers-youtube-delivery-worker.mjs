@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { lstat, mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { packageYouTubeUploads } from "./clippers-youtube-upload-packager.mjs";
 import { runYouTubePublishWorker } from "./clippers-youtube-publish-worker.mjs";
 
@@ -155,7 +155,11 @@ function cliValue(name) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const configPath = cliValue("config");
-  runYouTubeDeliveryWorker({ configPath })
+  // Mac/cloud lane lock. The zsh wrapper starts this with `env -i`, so the office database comes from the runtime
+  // checkout's selected env files (OFFICE_DATABASE_URL / OFFICE_OWNER_ID); without them the gate fails open.
+  const gateEnv = { ...process.env, CLIPPERS_CONFIG_ROOT: process.env.CLIPPERS_CONFIG_ROOT || path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..") };
+  import("./clippers-cloud-lanes.mjs").then((m) => m.macLaneGate("youtube_delivery", { env: gateEnv })).catch(() => true)
+    .then((allowed) => allowed ? runYouTubeDeliveryWorker({ configPath }) : { status: "completed", stage: "mac_lane_gate", reportPath: null, published: 0 })
     .then((result) => {
       process.stdout.write(`${JSON.stringify({ status: result.status, stage: result.stage, reportPath: result.reportPath, published: result.published }, null, 2)}\n`);
       if (result.status !== "completed") process.exitCode = 2;

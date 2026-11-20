@@ -39,6 +39,8 @@ function fail(code: string): never { throw new Error(`CREDIT_${code}`); }
 export function createSharedOpenAiCreditLedger(options: {
   grant: VerifiedCreditGrant; transact: CreditTransaction; now: () => Date;
   maximumGrantObservationAgeMs: number;
+  /** Optional plain read of the same durable state (no lock, no write). Used only by paceSnapshot. */
+  read?: () => Promise<SharedCreditState>;
 }) {
   const grant = grantSchema.parse(structuredClone(options.grant));
   const transact = options.transact, now = options.now, maximumAge = options.maximumGrantObservationAgeMs;
@@ -98,6 +100,23 @@ export function createSharedOpenAiCreditLedger(options: {
     async status() {
       return transaction((state, at) => ({ grantId: grant.id, ...totals(state), expired: Date.parse(at) >= Date.parse(grant.expiresAt) }));
     },
+    /** View for the daily pacer (server/credit-pacer.ts): per reservation only its time,
+     * consumer, key kind (prefix before the first ':') and amounts. Never keys, request
+     * hashes or evidence ids. Grants no execution authority. With `read` it is a plain
+     * validated read (no lock, no lastObservedAt write); without it, it falls back to the
+     * ordinary ledger transaction, which also records the observation time. */
+    async paceSnapshot() {
+      const view = (state: SharedCreditState) => ({
+        ledgerId: grant.accountScope, grantMicroUsd: grant.availableMicroUsd, observedAt: grant.observedAt, expiresAt: grant.expiresAt,
+        rows: state.reservations.map(row => ({ createdAt: row.createdAt, consumer: row.consumer, kind: row.key.split(":")[0], status: row.status,
+          reservedMicroUsd: row.reservedMicroUsd, ...(row.actualMicroUsd !== undefined ? { actualMicroUsd: row.actualMicroUsd } : {}) })),
+      });
+      if (!options.read) return transaction(state => view(state));
+      const state = structuredClone(await options.read());
+      validate(state);
+      if (!state.grant) fail("NOT_INITIALIZED");
+      return view(state);
+    },
     /** Trusted consumers can verify one already-settled receipt. Reading it
      * grants no execution authority and never releases an uncertain hold. */
     async settledReceipt(key: string) {
@@ -108,8 +127,16 @@ export function createSharedOpenAiCreditLedger(options: {
         return row;
       });
     },
-    async executionWindow(key: string) {
+    /** Read-only lookup of one key's row (any status); null when absent.
+     * Grants no execution authority. */
+    async reservation(key: string) {
       identifier.parse(key);
+      return transaction(state => state.reservations.find(item => item.key === key) ?? null);
+    },
+    /** maxMs: per-provider call bound (default 120 s, at most 600 s, the job lease). */
+    async executionWindow(key: string, maxMs = 120000) {
+      identifier.parse(key);
+      if (!Number.isSafeInteger(maxMs) || maxMs < 1 || maxMs > 600000) fail("CONFIGURATION_INVALID");
       await transaction((state, at) => {
         if (state.reservations.find(row => row.key === key)?.status !== "reserved") fail("RESERVATION_UNAVAILABLE");
         const budget = totals(state);
@@ -119,7 +146,7 @@ export function createSharedOpenAiCreditLedger(options: {
       // Recheck after the durable transaction returns, not before its I/O wait.
       const remainingMs = Date.parse(grant.expiresAt) - now().getTime();
       if (!Number.isFinite(remainingMs) || remainingMs <= 0) fail("EXPIRED");
-      return Math.min(remainingMs, 120000);
+      return Math.min(remainingMs, maxMs);
     },
     async reserve(input: { key: string; consumer: "office" | "factory"; requestSha256: string; maximumMicroUsd: number }) {
       const data = z.object({ key: identifier, consumer: z.enum(["office", "factory"]), requestSha256: z.string().regex(/^[a-f0-9]{64}$/), maximumMicroUsd: amount.refine(value => value > 0) }).strict().parse(input);

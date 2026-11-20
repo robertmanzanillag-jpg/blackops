@@ -487,6 +487,7 @@ function cliValue(name) {
 async function main() {
   const configPath = cliValue("config");
   if (!configPath) throw new Error("Usage: node script/clippers-content-local-worker.mjs --config /absolute/path/clippers-content-worker.json");
+  if (!(await import("./clippers-cloud-lanes.mjs").then((m) => m.macLaneGate("content")).catch(() => true))) return;
   const result = await runContentLocalWorker({ configPath });
   process.stdout.write(`${JSON.stringify({ status: result.status, reportPath: result.reportPath }, null, 2)}\n`);
 }

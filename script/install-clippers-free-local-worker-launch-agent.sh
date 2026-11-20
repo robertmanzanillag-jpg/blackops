@@ -109,6 +109,31 @@ REQUIRED_RUNTIME_FILES=(
   script/clippers-youtube-delivery-worker.mjs
   script/run-clippers-youtube-delivery-worker.sh
   script/clippers-daily-watchdog.mjs
+  script/clippers-daily-learning.mjs
+  script/clippers-native-media-receipts.mjs
+  script/clippers-weekly-policy.mjs
+  script/clippers-weekly-scheduler.mjs
+  script/clippers-creator-selection.mjs
+  script/clippers-creator-routing.mjs
+  shared/clippers-priority-creators.mjs
+  script/clippers-portfolio-metricool.mjs
+  script/clippers-portfolio-render.mjs
+  script/clippers-portfolio-discovery.mjs
+  script/clippers-portfolio-prepare.mjs
+  script/clippers-orchestra-report.mjs
+  script/clippers-orchestra-analytics.mjs
+  script/clippers-orchestra-relay.mjs
+  script/clippers-selected-env.mjs
+  script/clippers-mac-ledger-guard.mjs
+  script/clippers-cloud-lanes.mjs
+  script/clippers-drive-workspace.mjs
+  script/clippers-portable-magick.mjs
+  script/clippers-mac-retire.sh
+  shared/clippers-cloud-lanes.mjs
+  script/clippers-streamer-discovery.mjs
+  shared/clippers-account-lanes.mjs
+  shared/clippers-media-ledger.mjs
+  shared/clippers-streamer-policy.mjs
 )
 for relative in "${REQUIRED_RUNTIME_FILES[@]}"; do
   [[ -f "$RUNTIME_ROOT/$relative" && -r "$RUNTIME_ROOT/$relative" ]] || {

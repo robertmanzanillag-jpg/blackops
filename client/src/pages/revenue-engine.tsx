@@ -116,6 +116,7 @@ function hasDailyMoneyRunPlaceholders(value: string | undefined) {
 }
 
 type RevenueSnapshot = {
+  operatingPause?: { paused: boolean };
   metrics: {
     appsSold: number;
     automationsSold: number;
@@ -2491,6 +2492,7 @@ export default function RevenueEnginePage() {
       return response.json();
     },
   });
+  const commercialPaused = snapshot?.operatingPause?.paused === true;
   const approvalQueue = snapshot?.approvalQueueItems || [];
   const selectedApprovalQueueItem = approvalQueue.find((item) => item.id === selectedApprovalTargetId) || null;
   const approvalActionForSubmit = selectedApprovalQueueItem?.action || approvalAction;
@@ -2521,7 +2523,9 @@ export default function RevenueEnginePage() {
   );
   const dailyMoneyRunIsSafeEndpoint = DAILY_MONEY_SAFE_RUN_ENDPOINTS.has(dailyMoneyRunPacket?.apiAction || "");
   const dailyMoneyRunHasPlaceholders = hasDailyMoneyRunPlaceholders(dailyMoneyRunPacket?.copyableApiRequest);
-  const dailyMoneyRunBlockedReason = !dailyMoneyRunPacket
+  const dailyMoneyRunBlockedReason = commercialPaused
+    ? "Pausado por el dueño; no hay acciones comerciales habilitadas."
+    : !dailyMoneyRunPacket
     ? "Cargando run packet."
     : snapshot?.dailyMoneyCommand.status === "blocked"
       ? "Daily Money Command esta bloqueado por guardrails."
@@ -2532,7 +2536,7 @@ export default function RevenueEnginePage() {
           : !dailyMoneyRunRequest.ok
             ? dailyMoneyRunRequest.reason
             : "";
-  const canRunDailyMoneyNextAction = Boolean(dailyMoneyRunPacket && dailyMoneyRunIsSafeEndpoint && !dailyMoneyRunHasPlaceholders && dailyMoneyRunRequest.ok && snapshot?.dailyMoneyCommand.status !== "blocked");
+  const canRunDailyMoneyNextAction = Boolean(!commercialPaused && dailyMoneyRunPacket && dailyMoneyRunIsSafeEndpoint && !dailyMoneyRunHasPlaceholders && dailyMoneyRunRequest.ok && snapshot?.dailyMoneyCommand.status !== "blocked");
 
   useEffect(() => {
     if (approvalQueue.length === 0) {
@@ -2637,6 +2641,7 @@ export default function RevenueEnginePage() {
 
   const dailyMoneyRunMutation = useMutation<Record<string, unknown>, Error>({
     mutationFn: async () => {
+      if (commercialPaused) throw new Error("Pausado por el dueño.");
       const apiAction = snapshot?.dailyMoneyCommand.runPacket.apiAction || "";
       const request = parseDailyMoneyRunRequest(snapshot?.dailyMoneyCommand.runPacket.copyableApiRequest);
       if (!DAILY_MONEY_SAFE_RUN_ENDPOINTS.has(apiAction)) {
@@ -4104,7 +4109,7 @@ export default function RevenueEnginePage() {
                   {snapshot?.moneyActivationPlan.firstSprintPlan.title || "First revenue sprint"}
                 </p>
                 <p className="mt-1 text-xs leading-5 text-zinc-500">
-                  {snapshot?.moneyActivationPlan.firstSprintPlan.targetRows ?? 0} filas · {snapshot?.moneyActivationPlan.firstSprintPlan.nextApiAction || "/api/revenue-engine/scout-dispatch"}
+                  {snapshot?.moneyActivationPlan.firstSprintPlan.targetRows ?? 0} filas · {commercialPaused ? "En pausa" : (snapshot?.moneyActivationPlan.firstSprintPlan.nextApiAction || "/api/revenue-engine/scout-dispatch")}
                 </p>
                 <div className="mt-3 rounded-md border border-cyan-500/15 bg-cyan-500/5 px-3 py-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -4126,6 +4131,7 @@ export default function RevenueEnginePage() {
                   variant="outline"
                   className="mt-3 border-zinc-700 bg-zinc-950 text-zinc-100 hover:bg-zinc-900"
                   onClick={() => navigator.clipboard.writeText(snapshot?.moneyActivationPlan.firstSprintPlan.copyableBrief || "")}
+                  disabled={commercialPaused}
                   data-testid="button-copy-first-sprint-brief"
                 >
                   <Copy className="mr-2 h-3.5 w-3.5" />
@@ -4137,6 +4143,7 @@ export default function RevenueEnginePage() {
                   variant="outline"
                   className="mt-3 ml-2 border-cyan-500/30 bg-cyan-500/10 text-cyan-100 hover:bg-cyan-500/20"
                   onClick={() => navigator.clipboard.writeText(snapshot?.moneyActivationPlan.firstSprintPlan.copyableDispatchRequest || "")}
+                  disabled={commercialPaused}
                   data-testid="button-copy-first-sprint-dispatch-request"
                 >
                   <Copy className="mr-2 h-3.5 w-3.5" />
@@ -4327,7 +4334,7 @@ export default function RevenueEnginePage() {
                   Owner {snapshot?.launchReadiness.todayExecutionPack?.ownerAgent || "lead-scout"}
                 </p>
                 <p className="mt-3 rounded-md border border-black/30 bg-black/40 px-3 py-2 text-xs leading-5 text-zinc-300">
-                  {snapshot?.launchReadiness.todayExecutionPack?.copyableAgentCommand || "Find public no-website leads. Do not contact or spend."}
+                  {commercialPaused ? "En pausa" : (snapshot?.launchReadiness.todayExecutionPack?.copyableAgentCommand || "Find public no-website leads. Do not contact or spend.")}
                 </p>
                 <div className="mt-3 grid gap-2 text-xs sm:grid-cols-4">
                   <div className="rounded-md border border-zinc-800 bg-black px-2 py-2 text-zinc-300">
@@ -5666,6 +5673,7 @@ export default function RevenueEnginePage() {
                       variant="outline"
                       className="mt-3 w-full border-zinc-700 bg-zinc-950"
                       onClick={() => navigator.clipboard.writeText(snapshot?.dailyMoneyCommand.copyableOperatorBrief || "")}
+                      disabled={commercialPaused}
                       data-testid="button-copy-daily-money-command"
                     >
                       <Copy className="mr-2 h-3.5 w-3.5" />
@@ -5679,7 +5687,7 @@ export default function RevenueEnginePage() {
                         </Badge>
                       </div>
                       <p className="mt-2 text-xs leading-5 text-zinc-400">
-                        {snapshot?.dailyMoneyCommand.runPacket.apiAction || "/api/revenue-engine/scout-dispatch"}
+                        {commercialPaused ? "En pausa" : (snapshot?.dailyMoneyCommand.runPacket.apiAction || "/api/revenue-engine/scout-dispatch")}
                       </p>
                       <p className="mt-1 text-xs leading-5 text-zinc-500">
                         {snapshot?.dailyMoneyCommand.runPacket.gate || "Esperando guardrails."}
@@ -5691,6 +5699,7 @@ export default function RevenueEnginePage() {
                       variant="outline"
                       className="mt-3 w-full border-sky-500/30 bg-sky-500/10 text-sky-100 hover:bg-sky-500/20"
                       onClick={() => navigator.clipboard.writeText(snapshot?.dailyMoneyCommand.runPacket.copyableRunPacket || "")}
+                      disabled={commercialPaused}
                       data-testid="button-copy-daily-run-packet"
                     >
                       <Copy className="mr-2 h-3.5 w-3.5" />
@@ -5702,6 +5711,7 @@ export default function RevenueEnginePage() {
                       variant="outline"
                       className="mt-2 w-full border-zinc-700 bg-zinc-950"
                       onClick={() => navigator.clipboard.writeText(snapshot?.dailyMoneyCommand.runPacket.copyableApiRequest || "")}
+                      disabled={commercialPaused}
                       data-testid="button-copy-daily-run-api-request"
                     >
                       <Copy className="mr-2 h-3.5 w-3.5" />

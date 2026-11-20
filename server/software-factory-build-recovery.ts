@@ -103,6 +103,9 @@ export async function enqueueFailedBuildRecovery(options: { pool: CouncilPool; o
             if (!matchesRecovery(job, failed) || job.reservedCents !== request.reservedCents || approval?.successor_job_id!==job.id || approval.input_hash!==hash(jobInput(job)) || hash((job.payload.recovery as any).rebase)!==hash(rebase)) fail();
             await c.query("COMMIT"); return job;
         }
+        // OpenAI ledger only: a build whose model call was settled on the Claude
+        // fallback ledger has no receipt here, so its recovery fails closed
+        // (not yet supported; recover it by re-admitting the order instead).
         const namespace = ownerHash(JSON.stringify(["shared-openai-credit-ledger-v1", options.grant.accountScope]));
         await c.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [namespace]);
         const credit = (await c.query("SELECT state FROM agent_council_state WHERE owner_key=$1 FOR UPDATE", [namespace])).rows[0]?.state as SharedCreditState | undefined;

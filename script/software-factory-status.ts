@@ -1,6 +1,6 @@
 import "../server/env-loader";
 import pg from "pg";
-import { createCouncilStore, type CouncilClient } from "../server/agent-council-store";
+import { blackopsApplicationName, createCouncilStore, type CouncilClient } from "../server/agent-council-store";
 import {
   creditLedgerOwner, currentMonth, factoryTableNames, ownerKeyFor, parseStatusArgs, safeErrorCode,
   shapeCreditSummary, shapeJobCounts, shapeProjects,
@@ -12,7 +12,7 @@ async function main() {
   const { owner, creditScope } = parseStatusArgs(process.argv.slice(2));
   if (!process.env.DATABASE_URL?.trim()) throw new Error("DATABASE_URL_REQUIRED");
   const tables = factoryTableNames();
-  const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 10000, max: 1 });
+  const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 10000, max: 1, application_name: blackopsApplicationName("factory-status") });
   pool.on("error", () => undefined);
   try {
     const client = await pool.connect();

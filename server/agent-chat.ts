@@ -1,3 +1,4 @@
+import { ceoFocusContext } from "./ceo-domain-policy";
 // Per-agent chat service (owner only). Deterministic first, $0 by default:
 // - every agent the office shows can be opened (shared/agent-chat-directory.ts): BlackOps
 //   departments, Black Room, KONG central desks, KONG city desks, factory engineers, trainees;
@@ -7,14 +8,17 @@
 //   "Hablar con X" button;
 // - tasks become normal agent-company orders (same record as POST /api/agent-company/orders),
 //   handed off to the right department when it is not this agent's job (shared/agent-chat-routing.ts);
-//   KONG workers and trainees get no orders from here (honest pointer instead);
+//   trainees get no orders from here (honest pointer instead); KONG central desks (kong:*) and city
+//   desks (kong-city:*) receive Robert's orders through KONG's own office-orders endpoint
+//   (server/kong-office-orders.ts) and the thread shows KONG's task status when it is reopened;
 // - only an open question about the agent's own work may use the model, through the office's existing
 //   token budget; an answer with a number that is not in the injected data is discarded.
 // Nothing here publishes, deploys, contacts anyone or runs a worker: orders are records.
 
 import type { CouncilState } from "@shared/agent-council";
 import { isKongCompanyAgent, type CompanyOrder } from "@shared/agent-company";
-import { agentChatName, handoffLog, routeAgentMessage, scoreAgents, type AgentChatRoute } from "@shared/agent-chat-routing";
+import { KONG_DESK_PROFILE, agentChatName, handoffLog, isExternalActionForKong, routeAgentMessage, scoreAgents, type AgentChatRoute } from "@shared/agent-chat-routing";
+import { KONG_ORDER_MAX_TEXT, KongOfficeOrderError, isTerminalKongStatus, isUncertainKongError, kongOrderAgentId, kongOrderIdempotencyKey, kongStatusLabel, type KongOfficeOrderClient, type KongOfficeOrderTask } from "./kong-office-orders";
 import { AGENT_CHAT_GROUP_LABELS, buildAgentChatDirectory, directoryCityNames, findAgentChatEntry, isAgentChatIdShape, type AgentChatEntry } from "@shared/agent-chat-directory";
 import { effectiveIntegrations, integrationFor, parseIntegrationOverrides } from "@shared/agent-integrations";
 import { factoryAgentsView, isFactoryAgentId } from "@shared/factory-office-agents";
@@ -73,8 +77,10 @@ function groupFacts(state: CouncilState, profile: AgentChatEntry, now: number): 
     lines.push("Los listados concretos (nombres, fechas, precios o cantidades de clubs/eventos/mesas) viven en KONG y no están en mi registro de la oficina.");
   }
   if (profile.group === "kong-desk") {
-    const record = state.kongSupervision?.records?.find(item => item.agentId === profile.id);
-    lines.push(record ? `Última revisión del supervisor KONG (${when(record.checkedAt)}): ${record.result} — ${record.reason}` : "El supervisor KONG no tiene una revisión registrada de este puesto.");
+    // State comes only from KONG's own snapshot (the BlackOps "Supervisor KONG" was retired).
+    const kongId = KONG_DESK_PROFILE[profile.id] ?? profile.id;
+    const status = state.kongLastStatuses?.[kongId];
+    lines.push(status && state.kongObservedAt ? `Estado en la última lectura de KONG (${when(state.kongObservedAt)}): ${status.label}` : "No hay una lectura vigente de KONG para este puesto.");
   }
   if (profile.group === "factory" && isFactoryAgentId(profile.id)) {
     let view;
@@ -165,7 +171,7 @@ No prometas publicar, desplegar, pagar ni contactar a nadie: eso requiere aproba
 
 DATOS REGISTRADOS:
 ${facts}
-
+${ceoFocusContext()}
 CONVERSACIÓN RECIENTE:
 ${recent}
 
@@ -198,13 +204,78 @@ export function unsupportedNumbers(answer: string, facts: string) {
   return [...digits, ...words];
 }
 
+// Markers the thread keeps so a reopened conversation can show KONG's task status (pure; tested).
+const KONG_TASK_SENT = /Orden enviada a .+? en KONG \(tarea #([A-Za-z0-9_-]{1,64})\)/;
+const KONG_TASK_STATUS = /^Actualización de KONG · tarea #([A-Za-z0-9_-]{1,64})/;
+const KONG_STATUS_CODE = /Estado en KONG: `([A-Za-z0-9 _-]{1,40})`/;
+/** Every KONG task this thread sent and the last status the thread recorded for it, in order. */
+export function kongTasksInThread(messages: readonly AgentChatMessage[]): Array<{ taskId: string; status: string }> {
+  const tasks = new Map<string, string>();
+  for (const message of messages) {
+    if (message.role !== "agent" && message.role !== "handoff") continue;
+    const id = KONG_TASK_SENT.exec(message.text)?.[1] || KONG_TASK_STATUS.exec(message.text)?.[1];
+    const status = KONG_STATUS_CODE.exec(message.text)?.[1];
+    if (id && status) tasks.set(id, status);
+  }
+  return [...tasks].map(([taskId, status]) => ({ taskId, status }));
+}
+const kongStatusText = (task: KongOfficeOrderTask) => `Estado en KONG: \`${task.status}\` (${kongStatusLabel(task.status)}).${task.result ? `\n\nKONG informa: ${task.result}` : ""}`;
+const KONG_POLL_MIN_MS = 30_000;
+/** KONG did not answer: the order may exist there. No final reply is stored, so a retry reuses the idempotency key. */
+export class KongOrderUncertain extends Error {
+  constructor(name: string) { super(`No tuve respuesta clara de KONG para ${name}. KONG puede haberla recibido; no la reenvíes, revisa la conversación en un momento.`); }
+}
+const KONG_POLL_MAX_TASKS = 3;
+
 export function createAgentChatService(deps: {
   store: AgentThreadStore; council: Council; now?: () => number; model?: AgentChatModel; env?: NodeJS.ProcessEnv;
+  /** KONG office orders; without it KONG desks keep the honest "no orders from here" reply. */
+  kongOrders?: KongOfficeOrderClient;
 }) {
   const now = deps.now || Date.now;
   const done = new Map<string, unknown>();
   const inflight = new Map<string, Promise<unknown>>();
   const remember = (key: string, value: unknown) => { done.set(key, value); if (done.size > 500) done.delete(done.keys().next().value!); };
+  const lastKongPoll = new Map<string, number>();
+
+  /** Sends Robert's order to a KONG desk/city agent and returns the honest reply text (never throws). */
+  async function orderKong(target: AgentChatEntry, kongId: string, text: string, agentId: string, requestId: string) {
+    const client = deps.kongOrders!;
+    if (text.length > KONG_ORDER_MAX_TEXT) return `No envié la orden: KONG acepta órdenes de hasta ${KONG_ORDER_MAX_TEXT} caracteres (la tuya tiene ${text.length}). Acórtala y vuelve a enviarla.`;
+    if (isExternalActionForKong(text)) return `No envié la orden a KONG: publicar, pagar, contactar a alguien, desplegar o gastar son acciones externas que la oficina no despacha. Hazlo desde KONG con tu aprobación directa.`;
+    if (!client.enabled()) return `Todavía no puedo darle órdenes a **${target.name}**: el envío de órdenes a KONG no está activado en el servidor de la oficina (falta el acceso de órdenes de KONG). No envié nada; el puesto sigue con su trabajo programado.`;
+    try {
+      const task = await client.send({ agentId: kongId, text, idempotencyKey: kongOrderIdempotencyKey(agentId, requestId) });
+      lastKongPoll.set(task.taskId, now());
+      return `Orden enviada a ${target.name} en KONG (tarea #${task.taskId}). Te aviso el resultado aquí.\n\n${kongStatusText(task)}`;
+    } catch (error) {
+      if (isUncertainKongError(error)) throw new KongOrderUncertain(target.name);
+      const why = error instanceof KongOfficeOrderError ? error.message : "No se pudo conectar con KONG.";
+      return `No pude enviar la orden a **${target.name}** en KONG: ${/[.!?]$/.test(why) ? why : `${why}.`} No quedó registrada; vuelve a enviarla cuando quieras.`;
+    }
+  }
+
+  /** On reopening a thread: ask KONG for tasks still open and append what changed. */
+  async function refreshKongTasks(threadId: string, agentId: string, messages: AgentChatMessage[]) {
+    if (!deps.kongOrders?.enabled()) return messages;
+    const open = kongTasksInThread(messages).filter(task => !isTerminalKongStatus(task.status)
+      && now() - (lastKongPoll.get(task.taskId) ?? 0) >= KONG_POLL_MIN_MS).slice(-KONG_POLL_MAX_TASKS);
+    if (!open.length) return messages;
+    for (const known of open) lastKongPoll.set(known.taskId, now());
+    // Ask KONG about all open tasks at once so reopening a chat waits for one round trip, not one per task.
+    // A failed read keeps the last recorded status; the next reopen tries again.
+    const client = deps.kongOrders;
+    const results = await Promise.allSettled(open.map(known => client.status(known.taskId)));
+    const added: AgentChatMessage[] = [];
+    for (const [index, known] of open.entries()) {
+      const outcome = results[index];
+      if (outcome.status !== "fulfilled") continue;
+      const task = outcome.value;
+      if (task.taskId !== known.taskId || task.status === known.status) continue;
+      added.push(await deps.store.append(threadId, { role: "agent", agentId, text: `Actualización de KONG · tarea #${task.taskId}\n\n${kongStatusText(task)}` }));
+    }
+    return added.length ? [...messages, ...added] : messages;
+  }
 
   async function answerOwnQuestion(f: Facts, text: string, history: AgentChatMessage[], requestId: string) {
     const recorded = `Lo que sí está registrado:\n\n${statusLine(f)}${f.extra.length ? `\n\n${f.extra.join("\n")}` : ""}\n\n${ordersBlock(f)}`;
@@ -317,7 +388,22 @@ export function createAgentChatService(deps: {
     } else {
       const target = findAgentChatEntry(entries, route.targetAgentId) || self;
       const approval = route.approvalRequired ? "\n\n⚠ **Requiere tu aprobación**: es una acción externa (publicar, desplegar, pagar, contactar o gastar). La oficina es solo de revisión y no la ejecuta." : "";
-      if (!target.orderable) {
+      const kongTarget = (entry: AgentChatEntry) => deps.kongOrders && (entry.group === "kong-desk" || entry.group === "kong-city") ? kongOrderAgentId(entry.id) : null;
+      // Robert spoke to a KONG agent: unless he named someone else, that agent gets the order and KONG
+      // coordinates internally (e.g. "elimina el venue duplicado" to Miami · Clubs stays with Miami · Clubs).
+      const kongSelf = kongTarget(self) && kongTarget(target) && target.id !== self.id && !route.explicit;
+      const kongEntry = kongSelf ? self : target;
+      const kongId = kongTarget(kongEntry);
+      if (kongId) {
+        // Robert's order goes to KONG itself; KONG runs it and reports the task status back here.
+        const text = await orderKong(kongEntry, kongId, input.text, input.agentId, input.requestId);
+        if (route.decision === "handoff" && !kongSelf) {
+          handoff = handoffTo(target.id, route.reason);
+          await reply("handoff", `${route.reason}\n\n${text}`);
+        } else {
+          await reply("agent", text);
+        }
+      } else if (!target.orderable) {
         // KONG workers and trainees run outside this office: no order is recorded for them here.
         const why = target.group === "academy" ? "es un aprendiz de la academia; todavía no recibe trabajo real" : "es un puesto de KONG que trabaja fuera de esta oficina; desde aquí no se le registran órdenes";
         if (route.decision === "handoff") {
@@ -370,7 +456,7 @@ export function createAgentChatService(deps: {
     if (!isAgentChatIdShape(agentId) || typeof threadId !== "string") throw new AgentChatInputError("Conversación no válida.");
     const found = await deps.store.getThread(threadId);
     if (!found || found.agentId !== agentId) throw new AgentChatNotFound("Conversación no encontrada.");
-    return { thread: found, messages: await deps.store.listMessages(found.id) };
+    return { thread: found, messages: await refreshKongTasks(found.id, found.agentId, await deps.store.listMessages(found.id)) };
   }
   async function handoffs() { return handoffLog((await deps.council.load()).company); }
 

@@ -21,9 +21,11 @@ name: Office worker (cloud)
 # its concurrency group serializes runs). Explicit `target=office|factory|both` dispatches bypass the
 # clock. `software-factory-cloud.yml` is kept as a manual-only fallback with no schedule.
 
+# Single trigger: the external cron dispatches this workflow every 15 minutes. GitHub's own `schedule`
+# event used to be listed too; it began firing sporadically on top of the dispatch, so the office ran
+# twice in the same window and the second round collided on the shared council lock (CODE_55P03).
+# Do not add `schedule` back without removing the external dispatcher.
 on:
-  schedule:
-    - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       target:
@@ -39,6 +41,11 @@ on:
 
 permissions:
   contents: read
+
+# Factory admission of system-authored office self-heal orders (FACTORY_AUTO_ADMIT_SYSTEM_ORDERS) and the
+# optional daily draft-PR cap override (FACTORY_DRAFT_PRS_PER_DAY) come from the "Load office configuration"
+# step (repository variables, else .github/office-config.env). They only override autoAdmit.systemOrders /
+# the draft-PR cap of the private operator config; nothing else in the secret can be changed from here.
 
 jobs:
   config:
@@ -119,6 +126,9 @@ jobs:
           cache: npm
 
       - name: Install dependencies (no lifecycle scripts; esbuild rebuilt explicitly for tsx)
+        # Hosted runners use CPU; optional CUDA downloads must not block startup.
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
         run: |
           npm ci --ignore-scripts --no-audit --no-fund
           npm rebuild esbuild
@@ -126,7 +136,10 @@ jobs:
       - name: Install private configuration outside the checkout
         env:
           OPENAI_SHARED_CREDIT_CONFIG_JSON: ${{ secrets.OPENAI_SHARED_CREDIT_CONFIG_JSON }}
-          # Only used to derive the credit configuration when the secret above is empty (read-only).
+          # Read-only: derives the credit configuration from the ledger of OFFICE_SHARED_CREDIT_SCOPE
+          # (variable, else .github/office-config.env; default = the 2026-11-19 grant) in the database
+          # (script/shared-credit-config-from-db.ts). The derived config wins; the secret above is only
+          # the fallback while that ledger does not exist yet.
           DATABASE_URL: ${{ secrets.OFFICE_DATABASE_URL }}
         run: |
           set -euo pipefail
@@ -134,12 +147,17 @@ jobs:
           dir="$RUNNER_TEMP/office-config"
           mkdir -p "$dir"
           # Only needed when role academy, capability training or shared credits are enabled.
-          if [ -n "$OPENAI_SHARED_CREDIT_CONFIG_JSON" ]; then
+          # 1) Derived from the configured scope's ledger (prints only a static status line or code).
+          # 2) Otherwise the OPENAI_SHARED_CREDIT_CONFIG_JSON secret, unchanged.
+          if [ -n "${OFFICE_SHARED_CREDIT_SCOPE:-}" ] && [ -f script/shared-credit-config-from-db.ts ] &&
+             node --import tsx script/shared-credit-config-from-db.ts "--out=$dir/shared-credit.json"; then
+            echo "shared credit config: derived from the configured ledger"
+          elif [ -n "$OPENAI_SHARED_CREDIT_CONFIG_JSON" ]; then
+            rm -f "$dir/shared-credit.json"
             printf '%s' "$OPENAI_SHARED_CREDIT_CONFIG_JSON" > "$dir/shared-credit.json"
-          elif [ -f script/shared-credit-config-from-db.ts ] && node --import tsx script/shared-credit-config-from-db.ts "--out=$dir/shared-credit.json"; then
-            : # derived from the existing ledger; the script prints only a static status line
+            echo "shared credit config: secret fallback"
           elif [ "${OFFICE_SHARED_CREDITS_REQUIRED:-false}" = "true" ]; then
-            echo "::error::shared credit configuration unavailable (no secret and no derivable ledger)"; exit 1
+            echo "::error::shared credit configuration unavailable (no derivable ledger and no secret)"; exit 1
           else
             echo "::notice::shared credit configuration unavailable; continuing without shared credits"
           fi
@@ -158,8 +176,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.OFFICE_GITHUB_TOKEN }}
           # Read-only KONG operations/city evidence for the council's KONG rounds (same token as the web app).
           KONG_OFFICE_READ_TOKEN: ${{ secrets.KONG_OFFICE_READ_TOKEN }}
-          # OFFICE_* settings (model, budgets, feature flags, self-heal - off by default) come from the
-          # "Load office configuration" step: repository variables, else .github/office-config.env.
+          # OFFICE_* settings (model, budgets, feature flags, self-heal - off by default, credit pacer alert
+          # days, idle exit / max minutes) come from the "Load office configuration" step: repository
+          # variables, else .github/office-config.env.
         run: |
           set -euo pipefail
           export OPENAI_SHARED_CREDITS_REQUIRED="${OFFICE_SHARED_CREDITS_REQUIRED:-false}"
@@ -170,6 +189,54 @@ jobs:
       - name: Remove private configuration
         if: always()
         run: rm -rf "$RUNNER_TEMP/office-config"
+
+  notify:
+    # Owner notification for the daily credit pacer, isolated in its own job so that issues: write is
+    # never granted to the office executor. Read-only on the database; at most one `budget` issue per
+    # alert (fixed text + numbers). This repository is public: the script prints only static lines.
+    needs: [config, office-once]
+    if: ${{ !cancelled() && github.repository == 'robertmanzanillag-jpg/blackops' && needs.office-once.result != 'skipped' }}
+    permissions:
+      contents: read
+      issues: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    continue-on-error: true
+    steps:
+      - name: Load office configuration (variables override .github/office-config.env)
+        env:
+          OFFICE_CONFIG_ENV: ${{ needs.config.outputs.env }}
+        run: printf '%s\n' "$OFFICE_CONFIG_ENV" >> "$GITHUB_ENV"
+
+      - name: Refuse to run without a reviewed production source
+        run: |
+          if [ -z "${OFFICE_SOURCE_REF:-}" ]; then echo "::error::OFFICE_SOURCE_REF is empty"; exit 1; fi
+
+      - name: Check out the office source in production
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.config.outputs.OFFICE_SOURCE_REF }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies (no lifecycle scripts; esbuild rebuilt explicitly for tsx)
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm rebuild esbuild
+
+      - name: Notify the owner of credit pacing alerts
+        env:
+          DATABASE_URL: ${{ secrets.OFFICE_DATABASE_URL }}
+          DEFAULT_USER_ID: ${{ secrets.OFFICE_OWNER_ID }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -f script/credit-pacer-notify.ts ]; then node --import tsx script/credit-pacer-notify.ts; fi
 
   factory-gate:
     # Decides whether this run includes the factory. Never on forks; skipped (and so is the factory)
@@ -236,6 +303,9 @@ jobs:
           cache: npm
 
       - name: Install dependencies (no lifecycle scripts; esbuild rebuilt explicitly for tsx)
+        # Hosted runners use CPU; optional CUDA downloads must not block startup.
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
         run: |
           npm ci --ignore-scripts --no-audit --no-fund
           npm rebuild esbuild
@@ -244,8 +314,9 @@ jobs:
         env:
           OPENAI_SHARED_CREDIT_CONFIG_JSON: ${{ secrets.OPENAI_SHARED_CREDIT_CONFIG_JSON }}
           SOFTWARE_FACTORY_OPERATOR_CONFIG_JSON: ${{ secrets.SOFTWARE_FACTORY_OPERATOR_CONFIG_JSON }}
-          # Only used to derive the credit configuration when its secret is empty (read-only); same
-          # database as the factory run below, which holds the shared ledger.
+          # Read-only: derives the credit configuration from the ledger of OFFICE_SHARED_CREDIT_SCOPE in the
+          # same database the factory run uses (script/shared-credit-config-from-db.ts). The derived config
+          # wins; the secret above is only the fallback while that ledger does not exist yet.
           DATABASE_URL: ${{ secrets.FACTORY_DATABASE_URL || secrets.OFFICE_DATABASE_URL }}
         run: |
           set -euo pipefail
@@ -253,12 +324,17 @@ jobs:
           dir="$RUNNER_TEMP/factory-config"
           mkdir -p "$dir"
           test -n "$SOFTWARE_FACTORY_OPERATOR_CONFIG_JSON"
-          if [ -n "$OPENAI_SHARED_CREDIT_CONFIG_JSON" ]; then
+          # 1) Derived from the configured scope's ledger (prints only a static status line or code).
+          # 2) Otherwise the OPENAI_SHARED_CREDIT_CONFIG_JSON secret, unchanged.
+          if [ -n "${OFFICE_SHARED_CREDIT_SCOPE:-}" ] && [ -f script/shared-credit-config-from-db.ts ] &&
+             node --import tsx script/shared-credit-config-from-db.ts "--out=$dir/shared-credit.json"; then
+            echo "shared credit config: derived from the configured ledger"
+          elif [ -n "$OPENAI_SHARED_CREDIT_CONFIG_JSON" ]; then
+            rm -f "$dir/shared-credit.json"
             printf '%s' "$OPENAI_SHARED_CREDIT_CONFIG_JSON" > "$dir/shared-credit.json"
-          else
-            # Derived from the existing ledger; the script prints only a static status line or code.
-            node --import tsx script/shared-credit-config-from-db.ts "--out=$dir/shared-credit.json"
+            echo "shared credit config: secret fallback"
           fi
+          test -s "$dir/shared-credit.json"
           printf '%s' "$SOFTWARE_FACTORY_OPERATOR_CONFIG_JSON" > "$dir/operator.json"
           node -e 'for (const f of process.argv.slice(1)) JSON.parse(require("fs").readFileSync(f, "utf8"))' "$dir/shared-credit.json" "$dir/operator.json"
           echo "FACTORY_CONFIG_DIR=$dir" >> "$GITHUB_ENV"
@@ -275,9 +351,12 @@ jobs:
           DEFAULT_USER_ID: ${{ secrets.FACTORY_OWNER_ID || secrets.OFFICE_OWNER_ID }}
           SOFTWARE_FACTORY_OWNER_ID: ${{ secrets.FACTORY_OWNER_ID || secrets.OFFICE_OWNER_ID }}
           OPENAI_API_KEY: ${{ secrets.FACTORY_OPENAI_API_KEY || secrets.OFFICE_OPENAI_API_KEY }}
+          # Optional Claude fallback when the OpenAI shared credit is unavailable/exhausted (absent key = unchanged behavior).
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SOFTWARE_FACTORY_GITHUB_TOKEN: ${{ secrets.SOFTWARE_FACTORY_GITHUB_TOKEN }}
-          # SOFTWARE_FACTORY_OFFICE_REVIEW_ENABLED / _CAREERS_ENABLED and OFFICE_SELF_HEAL_* (off by default)
-          # come from the "Load office configuration" step; only the exact string 'true' enables them.
+          # FACTORY_ANTHROPIC_*, SOFTWARE_FACTORY_OFFICE_REVIEW_ENABLED / _CAREERS_ENABLED and OFFICE_SELF_HEAL_*
+          # (off by default) come from the "Load office configuration" step; only the exact string 'true'
+          # enables them.
         run: |
           set -euo pipefail
           export OPENAI_SHARED_CREDIT_CONFIG="$FACTORY_CONFIG_DIR/shared-credit.json"

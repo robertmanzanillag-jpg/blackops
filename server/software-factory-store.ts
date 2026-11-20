@@ -1,3 +1,4 @@
+import { factoryApiExecutionWindow, assertFactoryApiJobAdmission, assertFactoryApiParentSettlement, emptyFactoryApiState, parseFactoryApiState, factoryApiBudgetStatus, checkpointFactoryApiMonth, reserveFactoryApi, settleFactoryApi, unknownFactoryApi, type FactoryApiCheckpoint, type FactoryApiReservation, type FactoryApiExposure, type FactoryApiState } from "./software-factory-api-budget";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { FactoryProject } from "./software-factory";
@@ -13,6 +14,7 @@ const monthNow = () => new Date().toISOString().slice(0, 7);
 const decode = (row: Record<string, unknown>): FactoryJob => ({ ...inputSchema.parse(row.input), id: String(row.id), ownerKey: String(row.owner_key), month: String(row.month), status: String(row.status), createdAt: new Date(row.created_at as string).toISOString(), completedAt: row.completed_at ? new Date(row.completed_at as string).toISOString() : undefined, workerId: row.worker_id as string | undefined, fence: row.fence as string | undefined, leaseExpiresAt: row.lease_expires_at ? new Date(row.lease_expires_at as string).toISOString() : undefined, result: row.result });
 /** Prepared migration; never applied by web requests or worker startup. */
 export function createSoftwareFactorySchemaSql() { return `
+CREATE TABLE IF NOT EXISTS software_factory_api_authority (owner_key text PRIMARY KEY, state jsonb NOT NULL);
 CREATE TABLE IF NOT EXISTS software_factory_controls (owner_key text PRIMARY KEY, paused boolean NOT NULL DEFAULT true);
 CREATE TABLE IF NOT EXISTS software_factory_budget (owner_key text NOT NULL, month text NOT NULL CHECK(month ~ '^\\d{4}-\\d{2}$'), fixed_cents integer NOT NULL CHECK(fixed_cents BETWEEN 0 AND 10000), spent_cents integer NOT NULL DEFAULT 0 CHECK(spent_cents>=0), reserved_cents integer NOT NULL DEFAULT 0 CHECK(reserved_cents>=0), PRIMARY KEY(owner_key,month));
 CREATE TABLE IF NOT EXISTS software_factory_jobs (id uuid PRIMARY KEY, owner_key text NOT NULL, month text NOT NULL, input jsonb NOT NULL, request_hash text NOT NULL, job_key text NOT NULL, status text NOT NULL CHECK(status IN ('pending','running','completed','blocked','failed','unknown')), worker_id text, fence uuid, lease_expires_at timestamptz, created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP, completed_at timestamptz, result jsonb, UNIQUE(owner_key,job_key));
@@ -27,11 +29,56 @@ export function createSoftwareFactoryStore(providedPool?: OfficeCloudPool) {
   let lazyPool: OfficeCloudPool | undefined = providedPool;
   const pool = async () => { if (!lazyPool) { const { Pool } = await import("pg"); const { resolveDatabaseConnectionString } = await import("./database-url"); lazyPool = new Pool({ connectionString: resolveDatabaseConnectionString(), allowExitOnIdle: true }) as unknown as OfficeCloudPool; } return lazyPool; };
   const transaction = async <T>(fn: (client: OfficeCloudClient) => Promise<T>) => { const client = await (await pool()).connect(); try { await client.query("BEGIN"); await client.query("SELECT pg_advisory_xact_lock(83817421)"); const result = await fn(client); await client.query("COMMIT"); return result; } catch (error) { await client.query("ROLLBACK").catch(() => undefined); throw error; } finally { client.release(); } };
+  const priorLiabilities=async(c:Pick<OfficeCloudClient,"query">,key:string,now:string)=>{
+    const jobs=await c.query("SELECT * FROM software_factory_jobs WHERE owner_key=$1 AND month<$2 AND (status IN ('pending','running','unknown') OR completed_at >= $3::timestamptz)",[key,now.slice(0,7),now.slice(0,7)+"-01T00:00:00.000Z"]);
+    let reservedCents=0,spentCents=0;
+    for(const j of jobs.rows){
+      if(["pending","running","unknown"].includes(String(j.status)))reservedCents+=inputSchema.parse(j.input).reservedCents;
+      else{const cost=(j.result as any)?.costCents;if(!Number.isSafeInteger(cost)||cost<0)throw Error("FACTORY_LEDGER_COST_UNVERIFIED");spentCents+=cost;}
+    }
+    return {reservedCents,spentCents};
+  };
+  const apiExposure = async (c: OfficeCloudClient, key: string, now: string): Promise<FactoryApiExposure> => {
+    const current=await c.query("SELECT * FROM software_factory_budget WHERE owner_key=$1 AND month=$2",[key,now.slice(0,7)]);
+    const row=current.rows[0],prior=await priorLiabilities(c,key,now);
+    const jobs=await c.query("SELECT * FROM software_factory_jobs WHERE owner_key=$1 AND status IN ('pending','running','unknown')",[key]);
+    const reservedCents=Number(row?.reserved_cents??0)+prior.reservedCents,spentCents=Number(row?.spent_cents??0)+prior.spentCents;
+    return {configured:!!row,fixedCents:Number(row?.fixed_cents??0),spentCents,reservedCents,
+      unknown:jobs.rows.some(j=>j.status==="unknown"),parents:jobs.rows.map(j=>({jobId:String(j.id),fence:j.fence as string|undefined,status:String(j.status),maximumCents:inputSchema.parse(j.input).reservedCents-inputSchema.parse(j.input).recoveryCents,leaseExpiresAt:j.lease_expires_at?new Date(j.lease_expires_at as string).toISOString():undefined}))};
+  };
+  const readApiState=async(c:OfficeCloudClient,key:string)=>{
+    const present=await c.query("SELECT to_regclass('software_factory_api_authority') AS relation");
+    if(!present.rows[0]?.relation)return undefined;
+    const rows=await c.query("SELECT state FROM software_factory_api_authority WHERE owner_key=$1",[key]);
+    return rows.rows[0]?parseFactoryApiState(rows.rows[0].state):undefined;
+  };
+  const apiChange = async <T>(owner:string,change:(state:FactoryApiState,exposure:FactoryApiExposure,now:string)=>T):Promise<T> => transaction(async c=>{
+    const key=ownerKey(owner),now=new Date().toISOString();
+    const rows=await c.query("SELECT state FROM software_factory_api_authority WHERE owner_key=$1 FOR UPDATE",[key]);
+    const state=rows.rows[0]?parseFactoryApiState(rows.rows[0].state):emptyFactoryApiState();
+    const result=change(state,await apiExposure(c,key,now),now);
+    await c.query("INSERT INTO software_factory_api_authority(owner_key,state) VALUES($1,$2::jsonb) ON CONFLICT(owner_key) DO UPDATE SET state=EXCLUDED.state",[key,JSON.stringify(parseFactoryApiState(state))]);
+    return result;
+  });
   return {
+    async apiBudgetStatus(owner:string) {return transaction(async c=>{
+      const now=new Date().toISOString(),key=ownerKey(owner),exposure=await apiExposure(c,key,now);
+      const present=await c.query("SELECT to_regclass('software_factory_api_authority') AS relation");
+      const rows=present.rows[0]?.relation?await c.query("SELECT state FROM software_factory_api_authority WHERE owner_key=$1",[key]):{rows:[]};
+      return factoryApiBudgetStatus(rows.rows[0]?parseFactoryApiState(rows.rows[0].state):emptyFactoryApiState(),exposure,now);
+    });},
+    async executionWindowApi(owner:string,key:string) {return transaction(async c=>{const now=new Date().toISOString(),ownerHash=ownerKey(owner),state=await readApiState(c,ownerHash);if(!state)throw Error("FACTORY_API_RECONCILIATION_REQUIRED");return factoryApiExecutionWindow(state,await apiExposure(c,ownerHash,now),key,now);});},
+    async checkpointApiMonth(owner:string,input:FactoryApiCheckpoint) {return apiChange(owner,(state,exposure,now)=>checkpointFactoryApiMonth(state,exposure,input,now));},
+    async reserveApi(owner:string,input:FactoryApiReservation) {return apiChange(owner,(state,exposure,now)=>reserveFactoryApi(state,exposure,input,now));},
+    async settleApi(owner:string,key:string,input:{actualMicroUsd:number;evidenceSha256:string}) {return apiChange(owner,(state,_exposure,now)=>settleFactoryApi(state,key,input,now));},
+    async unknownApi(owner:string,key:string) {return apiChange(owner,state=>unknownFactoryApi(state,key));},
     async initializeMonth(owner: string, month: string, fixedCents: number) { if (month !== monthNow() || !Number.isInteger(fixedCents) || fixedCents < 0 || fixedCents > 10000) throw new Error("FACTORY_INVALID_BUDGET"); return transaction(async c => { const key = ownerKey(owner); await c.query("INSERT INTO software_factory_controls(owner_key) VALUES($1) ON CONFLICT DO NOTHING", [key]); await c.query("INSERT INTO software_factory_budget(owner_key,month,fixed_cents) VALUES($1,$2,$3) ON CONFLICT DO NOTHING", [key, month, fixedCents]); const existing = await c.query("SELECT fixed_cents FROM software_factory_budget WHERE owner_key=$1 AND month=$2", [key, month]); if (Number(existing.rows[0]?.fixed_cents) !== fixedCents) throw new Error("FACTORY_FIXED_COST_IMMUTABLE"); }); },
     async enqueue(owner: string, raw: FactoryJobInput) { const input = inputSchema.parse(raw); if (JSON.stringify(input).length > 64000) throw new Error("FACTORY_INPUT_TOO_LARGE"); const key = ownerKey(owner); const hash = createHash("sha256").update(JSON.stringify(input)).digest("hex"); return transaction(async c => {
       const previous = await c.query("SELECT * FROM software_factory_jobs WHERE owner_key=$1 AND job_key=$2", [key,input.key]); if (previous.rows[0]) { if (previous.rows[0].request_hash !== hash) throw new Error("FACTORY_IDEMPOTENCY_CONFLICT"); return decode(previous.rows[0]); }
-      const month = monthNow(); const admitted = await c.query("UPDATE software_factory_budget SET reserved_cents=reserved_cents+$3 WHERE owner_key=$1 AND month=$2 AND fixed_cents+spent_cents+reserved_cents+$3<=10000 AND fixed_cents+spent_cents+reserved_cents<10000 RETURNING *", [key,month,input.reservedCents]); if (!admitted.rows.length) throw new Error("FACTORY_BUDGET_UNAVAILABLE");
+      const month = monthNow();
+      const api=await readApiState(c,key);if(api&&input.reservedCents>0)assertFactoryApiJobAdmission(api,await apiExposure(c,key,new Date().toISOString()),input.reservedCents,new Date().toISOString());
+      const carried=await priorLiabilities(c,key,new Date().toISOString());
+      const admitted = await c.query("UPDATE software_factory_budget SET reserved_cents=reserved_cents+$3 WHERE owner_key=$1 AND month=$2 AND fixed_cents+spent_cents+reserved_cents+$3<=10000 AND fixed_cents+spent_cents+reserved_cents+$3+$4<=10000 AND fixed_cents+spent_cents+reserved_cents+$4<10000 RETURNING *", [key,month,input.reservedCents,carried.reservedCents+carried.spentCents]); if (!admitted.rows.length) throw new Error("FACTORY_BUDGET_UNAVAILABLE");
       const result = await c.query("INSERT INTO software_factory_jobs(id,owner_key,month,input,request_hash,job_key,status) VALUES($1,$2,$3,$4::jsonb,$5,$6,'pending') RETURNING *",[randomUUID(),key,month,JSON.stringify(input),hash,input.key]); return decode(result.rows[0]); }); },
     async saveProject(owner: string, config: FactoryProject) { const schema = z.object({ id:z.string().min(1).max(200), repo:z.string().regex(/^[\w.-]+\/[\w.-]+$/),testCommand:z.string().max(2000),buildCommand:z.string().max(2000),stagingUrl:z.string().max(2000),productionUrl:z.string().max(2000),healthUrl:z.string().max(2000),rollbackCommand:z.string().max(2000),journeys:z.array(z.string().max(200)).max(100),automaticRelease:z.boolean(),providerSupportsRelease:z.boolean(),providerSupportsRollback:z.boolean(),rehearsalRunIds:z.array(z.string()).max(100),rollbackVerifiedAt:z.string().optional() }).strict(); const safe = schema.parse(config);
       // Registration cannot manufacture provider capabilities or rehearsal evidence.
@@ -40,8 +87,9 @@ export function createSoftwareFactoryStore(providedPool?: OfficeCloudPool) {
     },
     /** Operator-only reconciliation: resolves uncertainty, never retries the external operation. */
     async reconcile(owner:string,id:string,input:{actualCostCents:number;executionStopped:boolean;reason:string}) { if (!Number.isSafeInteger(input.actualCostCents)||input.actualCostCents<0||input.executionStopped!==true||!input.reason.trim()||input.reason.length>2000) throw new Error("FACTORY_RECONCILIATION_PROOF_REQUIRED"); return transaction(async c=>{
-      const result=await c.query("UPDATE software_factory_jobs SET status='failed',result=$3::jsonb WHERE owner_key=$1 AND id=$2 AND status='unknown' RETURNING *",[ownerKey(owner),id,JSON.stringify({status:"failed",costCents:input.actualCostCents,reason:input.reason,reconciled:true,executionStopped:true})]);
+      const result=await c.query("UPDATE software_factory_jobs SET status='failed',result=$3::jsonb,completed_at=CURRENT_TIMESTAMP WHERE owner_key=$1 AND id=$2 AND status='unknown' RETURNING *",[ownerKey(owner),id,JSON.stringify({status:"failed",costCents:input.actualCostCents,reason:input.reason,reconciled:true,executionStopped:true})]);
       if(!result.rows[0])throw new Error("FACTORY_UNKNOWN_JOB_REQUIRED");const job=decode(result.rows[0]);
+      const api=await readApiState(c,job.ownerKey);if(api)assertFactoryApiParentSettlement(api,job.id,"failed",input.actualCostCents);
       await c.query("UPDATE software_factory_budget SET reserved_cents=reserved_cents-$3,spent_cents=spent_cents+$4 WHERE owner_key=$1 AND month=$2",[job.ownerKey,job.month,job.reservedCents,input.actualCostCents]);
       await c.query("UPDATE software_factory_controls SET paused=true WHERE owner_key=$1",[job.ownerKey]);return job;
     }); },
@@ -72,7 +120,7 @@ export function createSoftwareFactoryStore(providedPool?: OfficeCloudPool) {
     async projectByOwnerKey(key:string,id:string): Promise<FactoryProject | undefined> { if (!/^[a-f0-9]{64}$/.test(key)) throw new Error("FACTORY_INVALID_OWNER_KEY"); const result=await (await pool()).query("SELECT config FROM software_factory_projects WHERE owner_key=$1 AND id=$2",[key,id]); return result.rows[0]?.config as FactoryProject | undefined; },
     async projects(owner: string): Promise<FactoryProject[]> { return (await (await pool()).query("SELECT config FROM software_factory_projects WHERE owner_key=$1 ORDER BY id",[ownerKey(owner)])).rows.map(r => r.config as FactoryProject); },
     async list(owner: string) { return (await (await pool()).query("SELECT * FROM software_factory_jobs WHERE owner_key=$1 ORDER BY created_at DESC LIMIT 100",[ownerKey(owner)])).rows.map(decode); },
-    async status(owner: string) { const key = ownerKey(owner); const month = monthNow(); const p = await pool(); const r = await p.query("SELECT b.*,c.paused FROM software_factory_budget b JOIN software_factory_controls c USING(owner_key) WHERE b.owner_key=$1 AND b.month=$2",[key,month]); const row = r.rows[0]; const workers = (await p.query("SELECT id,last_seen_at,capabilities FROM software_factory_workers WHERE last_seen_at > CURRENT_TIMESTAMP - interval '45 seconds'")).rows; return { configured: !!row, paused: row ? row.paused !== false : true, month, fixedCents: Number(row?.fixed_cents || 0), spentCents: Number(row?.spent_cents || 0), reservedCents: Number(row?.reserved_cents || 0), limitCents: 10000, workers }; },
+    async status(owner: string) { const key = ownerKey(owner); const month = monthNow(); const p = await pool(); const r = await p.query("SELECT b.*,c.paused FROM software_factory_budget b JOIN software_factory_controls c USING(owner_key) WHERE b.owner_key=$1 AND b.month=$2",[key,month]); const row = r.rows[0]; const prior=await priorLiabilities(p,key,new Date().toISOString()); const workers = (await p.query("SELECT id,last_seen_at,capabilities FROM software_factory_workers WHERE last_seen_at > CURRENT_TIMESTAMP - interval '45 seconds'")).rows; return { configured: !!row, paused: row ? row.paused !== false : true, month, fixedCents: Number(row?.fixed_cents || 0), spentCents: Number(row?.spent_cents || 0)+prior.spentCents, reservedCents: Number(row?.reserved_cents || 0)+prior.reservedCents, limitCents: 10000, workers }; },
     async setPaused(owner: string, paused: boolean) { if (typeof paused !== "boolean") throw new Error("FACTORY_INVALID_PAUSE"); await (await pool()).query("INSERT INTO software_factory_controls(owner_key,paused) VALUES($1,$2) ON CONFLICT(owner_key) DO UPDATE SET paused=EXCLUDED.paused",[ownerKey(owner),paused]); },
     async heartbeat(workerId: string, capabilities: Record<string, boolean> = {}) { await (await pool()).query("INSERT INTO software_factory_workers(id,capabilities) VALUES($1,$2::jsonb) ON CONFLICT(id) DO UPDATE SET last_seen_at=CURRENT_TIMESTAMP,capabilities=EXCLUDED.capabilities",[workerId,JSON.stringify(capabilities)]); },
     async idleState(): Promise<{ kind: "idle" | "unknown" | "pendingRecovery" } | { kind: "running"; leaseExpiresAt: string }> {
@@ -95,6 +143,7 @@ export function createSoftwareFactoryStore(providedPool?: OfficeCloudPool) {
     async complete(job: FactoryJob, outcome: FactoryOutcome, next?: FactoryJobInput) { if (!Number.isSafeInteger(outcome.costCents) || outcome.costCents < 0 || !["completed","blocked","failed","unknown"].includes(outcome.status) || JSON.stringify(outcome).length > 200000) throw new Error("FACTORY_INVALID_OUTCOME"); return transaction(async c => {
       const result = await c.query("UPDATE software_factory_jobs SET status=$4,result=$5::jsonb,completed_at=CURRENT_TIMESTAMP WHERE id=$1 AND worker_id=$2 AND fence=$3 AND status='running' AND lease_expires_at>CURRENT_TIMESTAMP RETURNING *",[job.id,job.workerId,job.fence,outcome.status,JSON.stringify(outcome)]); if (!result.rows[0]) return false;
       const stored = decode(result.rows[0]);
+      const api=await readApiState(c,stored.ownerKey);if(api)assertFactoryApiParentSettlement(api,stored.id,outcome.status,outcome.costCents);
       const protectedTransfer=stored.kind==="deploy" && next?.kind==="verify" || stored.kind==="verify" && next?.kind==="rollback";
       if (outcome.status!=="unknown" && stored.recoveryCents>0 && outcome.costCents>stored.reservedCents-stored.recoveryCents) throw new Error("FACTORY_RECOVERY_ESCROW_OVERRUN");
       if (stored.kind==="deploy" && outcome.status==="completed" && !protectedTransfer) throw new Error("FACTORY_VERIFICATION_REQUIRED");

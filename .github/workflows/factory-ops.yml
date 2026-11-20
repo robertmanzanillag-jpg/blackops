@@ -8,17 +8,22 @@ name: Factory operations (manual)
 #   migrate-dry-run  creates the factory tables inside a transaction, verifies them, rolls back
 #   migrate-apply    commits the additive factory schema; requires confirm=APLICAR
 #   office-status    read-only office diagnostic (script/office-status.ts), always rolled back
+#   office-credit-audit read-only primary snapshot; counts only, never recovery authority
+#   credit-new       creates the NEW shared OpenAI credit ledger for the owner-approved 2026-11-19
+#                    grant ($200, scope openai-2026-11-19); requires confirm=APLICAR. Refuses
+#                    (CREDIT_STORAGE_ALREADY_EXISTS) when that scope already exists, so a repeat is a
+#                    no-op. Prints only the ledger status JSON, never the grant/CONFIG_JSON line.
 #
 # This repository is public, so job logs are public: the scripts print only static JSON
 # (table presence, pause flag, budget/job counts) and static error codes, never connection
-# details. The shared credit ledger is intentionally not reported here. office-status prints only
+# details. office-credit-audit reports only cross-ledger counts/booleans. office-status prints only
 # enum codes, counts, dates and ages (no user/worker/job ids, URLs, free text, prompts or answers).
 
 on:
   workflow_dispatch:
     inputs:
       action:
-        description: "status | migrate-dry-run | migrate-apply | office-status | sources-migrate-dry-run | sources-migrate-apply"
+        description: "status | migrate-dry-run | migrate-apply | office-status | office-credit-audit | sources-migrate-dry-run | sources-migrate-apply | credit-new"
         required: true
         type: choice
         default: status
@@ -27,10 +32,12 @@ on:
           - migrate-dry-run
           - migrate-apply
           - office-status
+          - office-credit-audit
           - sources-migrate-dry-run
           - sources-migrate-apply
+          - credit-new
       confirm:
-        description: "Type APLICAR to allow migrate-apply"
+        description: "Type APLICAR to allow migrate-apply, sources-migrate-apply or credit-new"
         required: false
         type: string
         default: ""
@@ -72,9 +79,9 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Refuse an unconfirmed apply
-        if: (inputs.action == 'migrate-apply' || inputs.action == 'sources-migrate-apply') && inputs.confirm != 'APLICAR'
+        if: (inputs.action == 'migrate-apply' || inputs.action == 'sources-migrate-apply' || inputs.action == 'credit-new') && inputs.confirm != 'APLICAR'
         run: |
-          echo "migrate-apply requires confirm=APLICAR" >&2
+          echo "this action requires confirm=APLICAR" >&2
           exit 1
 
       - name: Refuse to run without a reviewed production source
@@ -100,7 +107,9 @@ jobs:
             status) test -f script/software-factory-status.ts ;;
             migrate-dry-run|migrate-apply) test -f script/software-factory-migrate.ts ;;
             office-status) test -f script/office-status.ts ;;
+            office-credit-audit) test -f script/office-credit-audit.ts ;;
             sources-migrate-dry-run|sources-migrate-apply) test -f script/office-source-documents-migrate.ts ;;
+            credit-new) test -f script/shared-credit-grant.ts ;;
             *) echo "unknown action" >&2; exit 1 ;;
           esac
 
@@ -110,6 +119,9 @@ jobs:
           cache: npm
 
       - name: Install dependencies (no lifecycle scripts; esbuild rebuilt explicitly for tsx)
+        # Diagnostics run on CPU; optional CUDA downloads must not block them.
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
         run: |
           npm ci --ignore-scripts --no-audit --no-fund
           npm rebuild esbuild
@@ -138,6 +150,15 @@ jobs:
           DEFAULT_USER_ID: ${{ secrets.OFFICE_OWNER_ID }}
         run: node --import tsx script/office-status.ts
 
+      - name: Audit office credit evidence (read-only)
+        if: inputs.action == 'office-credit-audit'
+        env:
+          NODE_ENV: production
+          DATABASE_URL: ${{ secrets.OFFICE_DATABASE_URL }}
+          DEFAULT_USER_ID: ${{ secrets.OFFICE_OWNER_ID }}
+          OPENAI_SHARED_CREDIT_CONFIG_JSON: ${{ secrets.OPENAI_SHARED_CREDIT_CONFIG_JSON }}
+        run: node --import tsx script/office-credit-audit.ts
+
       - name: Run ${{ inputs.action }} (office source documents)
         if: inputs.action == 'sources-migrate-dry-run' || inputs.action == 'sources-migrate-apply'
         env:
@@ -151,3 +172,30 @@ jobs:
           else
             node --import tsx script/office-source-documents-migrate.ts
           fi
+
+      - name: Create the new shared credit ledger (credit-new)
+        if: inputs.action == 'credit-new' && inputs.confirm == 'APLICAR'
+        env:
+          NODE_ENV: production
+          # Same database as the office worker and the factory (they share the one ledger).
+          DATABASE_URL: ${{ secrets.OFFICE_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          umask 077
+          out="$RUNNER_TEMP/credit-new.out"
+          # The tool's own failures are static codes on stderr (e.g. CREDIT_STORAGE_ALREADY_EXISTS).
+          status=0
+          node --import tsx script/shared-credit-grant.ts new --scope=openai-2026-11-19 --id=grant-2026-11-19-200 \
+            --usd=200 --expires=2026-12-19T23:59:59Z --evidence=owner-approved-2026-11-19 \
+            --model=gpt-6.1-sol --input-usd-per-million=2 --output-usd-per-million=10 \
+            --pricing-valid-until=2026-12-31T00:00:00Z --apply > "$out" || status=$?
+          # Print only the static status line; the CONFIG_JSON (grant) line is never echoed.
+          node -e '
+            const lines = require("fs").readFileSync(process.argv[1], "utf8").split("\n");
+            for (const line of lines) {
+              if (!line.startsWith("{")) continue;
+              const parsed = JSON.parse(line);
+              if (parsed.applied === true && parsed.status) console.log(JSON.stringify({ applied: true, status: parsed.status }));
+            }' "$out"
+          rm -f "$out"
+          exit "$status"

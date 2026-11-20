@@ -136,13 +136,15 @@ export function createOpenAiFactoryPatchGenerator(options: {
     // The strict downstream parser still validates the entire resulting patch.
     let diagnostic: FactoryPatchDiagnostic | undefined;
     if (result.status !== "completed") {
-      diagnostic = result.reason === "FACTORY_OPENAI_OUTPUT_LIMIT" ? "PROVIDER_OUTPUT_LIMIT" :
-        result.reason === "FACTORY_OPENAI_INCOMPLETE" ? "PROVIDER_INCOMPLETE" :
-        result.reason === "FACTORY_OPENAI_RESPONSE_CANCELLED" ? "PROVIDER_RESPONSE_CANCELLED" :
-        result.reason === "FACTORY_OPENAI_RESPONSE_FAILED" ? "PROVIDER_RESPONSE_FAILED" :
-        result.reason === "FACTORY_OPENAI_NOT_COMPLETED" ? "PROVIDER_NOT_COMPLETED" :
-        result.reason === "FACTORY_OPENAI_REFUSAL" ? "PROVIDER_REFUSAL" :
-        result.reason === "FACTORY_OPENAI_EMPTY_TEXT" ? "PROVIDER_EMPTY_TEXT" :
+      // Same diagnostics for every provider's code-owned reason (OpenAI or Claude).
+      const reason = result.reason.replace(/^FACTORY_ANTHROPIC_/, "FACTORY_OPENAI_");
+      diagnostic = reason === "FACTORY_OPENAI_OUTPUT_LIMIT" ? "PROVIDER_OUTPUT_LIMIT" :
+        reason === "FACTORY_OPENAI_INCOMPLETE" ? "PROVIDER_INCOMPLETE" :
+        reason === "FACTORY_OPENAI_RESPONSE_CANCELLED" ? "PROVIDER_RESPONSE_CANCELLED" :
+        reason === "FACTORY_OPENAI_RESPONSE_FAILED" ? "PROVIDER_RESPONSE_FAILED" :
+        reason === "FACTORY_OPENAI_NOT_COMPLETED" ? "PROVIDER_NOT_COMPLETED" :
+        reason === "FACTORY_OPENAI_REFUSAL" ? "PROVIDER_REFUSAL" :
+        reason === "FACTORY_OPENAI_EMPTY_TEXT" ? "PROVIDER_EMPTY_TEXT" :
         result.status === "blocked" ? "PROVIDER_BLOCKED" : "PROVIDER_FAILED";
       return { patch: "", costCents: result.costCents, diagnostic };
     }

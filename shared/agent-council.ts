@@ -8,8 +8,7 @@ import type { OfficeKongCollaboration } from "../server/office-kong-collaboratio
 // itself: approved items become playbook lessons or PR-first handoff briefs.
 
 import { agentProbes, summarizeProbe, type AgentLiveStatus } from "./agent-live-status";
-import { emptyKongSupervision, parseKongSupervision, type KongSupervision } from "./kong-supervisor";
-import { emptyCompanyState, parseCompanyState, separateLegacyKongCompany, type CompanyState } from "./agent-company";
+import { emptyCompanyState, isKongSnapshotAgent, kongCareersMirror, mergeKongCompany, parseCompanyState, separateLegacyKongCompany, type CompanyState } from "./agent-company";
 
 export type Severity = "low" | "medium" | "high";
 export type Verdict = "escalado" | "confirmado" | "descartado";
@@ -59,7 +58,8 @@ export type CouncilDebate = CouncilFinding & {
 };
 
 export type ProposalKind = "lesson" | "skill_update" | "new_agent" | "repair";
-export type ProposalStatus = "pending_submit" | "submitted" | "approved" | "applied" | "rejected" | "not_submitted";
+/** "withdrawn": closed by the system because it no longer applies (neither approved nor rejected by Robert). */
+export type ProposalStatus = "pending_submit" | "submitted" | "approved" | "applied" | "rejected" | "not_submitted" | "withdrawn";
 
 export type CouncilProposal = {
   key: string;
@@ -72,6 +72,8 @@ export type CouncilProposal = {
   createdAt: string;
   status: ProposalStatus;
   pendingActionId?: string;
+  /** Set once a withdrawn proposal's Trust Center row was cancelled (or was already closed). */
+  pendingActionClosedAt?: string;
   note?: string;
   closedAt?: string;
   lesson?: { ruleId: string; subject: string; label: string };
@@ -82,9 +84,10 @@ export type CouncilLesson = { key: string; ruleId: string; subject: string; labe
 export type ScoutRelease = { repo: string; tag: string; url: string; publishedAt: string | null; skills: string[] };
 
 export type CouncilState = {
-  officeExecution?: { roles: import("./office-role-lifecycle").OfficeRoleLifecycleState; tokens: import("../server/office-token-budget").OfficeTokenBudgetState; internalWork?: import("../server/office-internal-work").InternalWorkState; roleAcademy?: import("../server/office-role-academy").RoleAcademyState; capabilityTraining?: import("../server/office-capability-training").CapabilityTrainingState; roleWork?: import("../server/office-role-work").RoleWorkState; factoryCareers?: import("./factory-office-agents").FactoryCareerLedger; selfHeal?: import("../server/office-self-heal").SelfHealState };
+  officeExecution?: { roles: import("./office-role-lifecycle").OfficeRoleLifecycleState; tokens: import("../server/office-token-budget").OfficeTokenBudgetState; internalWork?: import("../server/office-internal-work").InternalWorkState; roleAcademy?: import("../server/office-role-academy").RoleAcademyState; capabilityTraining?: import("../server/office-capability-training").CapabilityTrainingState; roleWork?: import("../server/office-role-work").RoleWorkState; factoryCareers?: import("./factory-office-agents").FactoryCareerLedger; selfHeal?: import("../server/office-self-heal").SelfHealState; creditPacer?: import("../server/credit-pacer").CreditPacerState };
   version: 1;
-  kongSupervision: KongSupervision;
+  /** Retired Supervisor KONG state, kept verbatim (never deleted, never advanced). Read only by parseLegacyKongSupervision. */
+  kongSupervision?: unknown;
   cycles: number;
   lastCycleAt: string | null;
   lastCycleError: string | null;
@@ -95,6 +98,10 @@ export type CouncilState = {
   agentStates: Record<string, { working: boolean; since: string }>;
   scout: { lastRunAt: string | null; lastSeen: Record<string, string>; latest: ScoutRelease[]; error: string | null };
   company: CompanyState;
+  /**
+   * Deprecated: read only to migrate states whose `company` lacks `kongCareersMerged`. Written as a mirror of the
+   * KONG careers in `company` (withKongMirror) so an older, not yet republished process keeps them.
+   */
   kongCompany: CompanyState;
   /** Historical records only; never scored or advanced and never returned by the public view. */
   kongLegacyCompany: CompanyState;
@@ -105,6 +112,8 @@ export type CouncilState = {
   kongCollaboration: OfficeKongCollaboration;
   kongLastStatuses: Record<string, { state: AgentLiveStatus["state"]; label: string }>;
   lastStatuses: Record<string, { state: AgentLiveStatus["state"]; label: string }>;
+  /** Latest Clippers academy lessons (measured Metricool performance), written by the council round. */
+  clippersAcademy?: { observedAt: string; lessons: import("./agent-self-improvement").ClippersLesson[] };
 };
 
 export const COUNCIL_CYCLE_MS = 15 * 60_000;
@@ -130,7 +139,6 @@ export const SCOUT_WATCHLIST: Array<{ repo: string; skills: string[]; why: strin
 export function emptyCouncilState(): CouncilState {
   return {
     version: 1,
-    kongSupervision: emptyKongSupervision(),
     cycles: 0,
     lastCycleAt: null,
     lastCycleError: null,
@@ -140,7 +148,7 @@ export function emptyCouncilState(): CouncilState {
     lessons: [],
     agentStates: {},
     scout: { lastRunAt: null, lastSeen: {}, latest: [], error: null },
-    company: emptyCompanyState(),
+    company: { ...emptyCompanyState(), kongCareersMerged: true },
     kongCompany: emptyCompanyState(),
     kongLegacyCompany: emptyCompanyState(),
     kongEvidenceAt: {},
@@ -178,7 +186,13 @@ export function parseCouncilState(raw: string | null): CouncilState {
     const value = JSON.parse(raw);
     if (value?.version !== 1 || !Array.isArray(value.debates) || !Array.isArray(value.proposals) || !obj(value.scout)) return emptyCouncilState();
     const base = emptyCouncilState();
-    const legacy = separateLegacyKongCompany(parseCompanyState(value.company), parseCompanyState(value.kongLegacyCompany));
+    // States written before the merge: quarantine old main-company KONG scores as before, then move
+    // the separate KONG ledger in unchanged. Merged states keep their KONG careers in `company`.
+    // The marker lives inside `company` because older processes rebuild `company` field by field and
+    // drop it: a state they wrote is then migrated again from their (mirror-continued) KONG ledger.
+    const merged = obj(value.company)?.kongCareersMerged === true;
+    const legacy = separateLegacyKongCompany(parseCompanyState(value.company), parseCompanyState(value.kongLegacyCompany), merged ? isKongSnapshotAgent : undefined);
+    const company: CompanyState = { ...(merged ? legacy.company : mergeKongCompany(legacy.company, parseCompanyState(value.kongCompany))), kongCareersMerged: true };
     return {
       ...base,
       ...value,
@@ -186,9 +200,9 @@ export function parseCouncilState(raw: string | null): CouncilState {
       lessons: Array.isArray(value.lessons) ? value.lessons : [],
       resolvedDebates: Array.isArray(value.resolvedDebates) ? value.resolvedDebates : [],
       scout: { ...base.scout, ...value.scout, lastSeen: obj(value.scout.lastSeen) ? value.scout.lastSeen : {} },
-      company: legacy.company,
+      company,
       kongLegacyCompany: legacy.archived,
-      kongCompany: parseCompanyState(value.kongCompany),
+      kongCompany: kongCareersMirror(company),
       kongEvidenceAt: Object.fromEntries(Object.entries(obj(value.kongEvidenceAt) || {}).filter(([, v]) => typeof v === "string" && Number.isFinite(Date.parse(v)))),
       kongCollaboration: obj(value.kongCollaboration) && Array.isArray(value.kongCollaboration.exchanges) ? value.kongCollaboration : base.kongCollaboration,
       kongObservedAt: typeof value.kongObservedAt === "string" ? value.kongObservedAt : null,
@@ -196,12 +210,16 @@ export function parseCouncilState(raw: string | null): CouncilState {
         ? { at: value.kongRead.at, ok: value.kongRead.ok, code: typeof value.kongRead.code === "string" ? value.kongRead.code.slice(0, 40) : null }
         : null,
       kongLastStatuses: obj(value.kongLastStatuses) ? value.kongLastStatuses : {},
-      kongSupervision: parseKongSupervision(value.kongSupervision),
       lastStatuses: obj(value.lastStatuses) ? value.lastStatuses : {},
     };
   } catch {
     return emptyCouncilState();
   }
+}
+
+/** Every write refreshes the compatibility mirror of the KONG careers (see `kongCompany`). */
+export function withKongMirror(state: CouncilState): CouncilState {
+  return { ...state, company: { ...state.company, kongCareersMerged: true }, kongCompany: kongCareersMirror(state.company) };
 }
 
 function subjectStatus(agentId: string, body: unknown): AgentLiveStatus | null {

@@ -1,6 +1,6 @@
 # Codebase Map
 
-Generated: 2026-11-07T04:45:37.459Z
+Generated: 2026-11-20T15:54:46.025Z
 Repo: `.`
 Package: `rest-express`
 
@@ -13,7 +13,7 @@ Package: `rest-express`
 ## Totals
 | Git-visible files | Indexed files | Imports | Routes | Symbols |
 | ---: | ---: | ---: | ---: | ---: |
-| 1010 | 912 | 3440 | 571 | 18840 |
+| 1285 | 1180 | 4947 | 632 | 28382 |
 
 ## Entrypoints
 - `client/src/App.tsx`
@@ -28,45 +28,52 @@ Package: `rest-express`
 ## Main Directories
 | Directory | Visible | Indexed | Main kinds |
 | --- | ---: | ---: | --- |
-| `tests` | 259 | 255 | test:259 |
-| `server` | 243 | 238 | server:243 |
-| `script` | 104 | 93 | script:104 |
+| `tests` | 343 | 339 | test:343 |
+| `server` | 288 | 282 | server:288 |
+| `client/src` | 160 | 158 | ui-component:55, client-component:51, client-page:26, client-lib:21 |
+| `script` | 147 | 132 | script:147 |
+| `docs` | 79 | 77 | docs:79 |
 | `examples/clippers-motivation` | 71 | 71 | other:70, docs:1 |
-| `client/src/components/ui` | 55 | 55 | ui-component:55 |
-| `docs` | 54 | 52 | docs:54 |
-| `client/src/components` | 30 | 30 | client-component:30 |
-| `client/src/pages` | 26 | 24 | client-page:26 |
-| `.` | 35 | 18 | other:23, docs:11, package:1 |
-| `client/src/lib` | 18 | 18 | client-lib:18 |
-| `shared` | 18 | 18 | shared:18 |
+| `shared` | 46 | 42 | shared:46 |
+| `.` | 28 | 19 | other:15, docs:12, package:1 |
+| `server/blackroom-team` | 17 | 17 | server:17 |
+| `script/office-api-budget-v6` | 10 | 8 | script:10 |
+| `server/replit_integrations` | 8 | 8 | server:8 |
+| `script/release-gate` | 7 | 7 | script:7 |
+| `tests/fixtures` | 8 | 6 | test:8 |
 | `.agents/memory` | 5 | 5 | docs:5 |
-| `client/src/components/company-office` | 5 | 5 | client-component:5 |
-| `server/replit_integrations/chat` | 4 | 4 | server:4 |
-| `client/src` | 3 | 3 | other:3 |
-| `client/src/hooks` | 3 | 3 | client-hook:3 |
-| `server/replit_integrations/image` | 3 | 3 | server:3 |
-| `client/public` | 14 | 2 | other:14 |
-| `client/src/components/agents-world-office` | 2 | 2 | client-component:2 |
-| `server/replit_integrations/batch` | 2 | 2 | server:2 |
-| `tests/fixtures` | 2 | 2 | test:2 |
-| `.agents/skills/codebase-overview` | 1 | 1 | docs:1 |
+| `client/public` | 15 | 2 | other:15 |
+| `.agents/skills` | 2 | 1 | docs:1, other:1 |
+| `.github` | 4 | 1 | other:4 |
 | `client` | 1 | 1 | other:1 |
-| `client/src/components/agents-building` | 1 | 1 | client-component:1 |
+| `scripts` | 4 | 1 | script:4 |
+| `shared/models` | 1 | 1 | shared:1 |
+| `tests/harness` | 1 | 1 | test:1 |
+| `tutorials/dropshipping-ceo-tutorial` | 5 | 1 | other:4, docs:1 |
+| `.github/workflows` | 12 | 0 | other:12 |
+| `assets/fonts` | 2 | 0 | other:2 |
 
 ## Routes Detected
-- `client/src/App.tsx`: `/`, `/agents-office`, `/app-qa-agent`, `/assistant`, `/automations`, `/ceo`, `/clippers`, `/code-agent`, `/cybersecurity-agent`, `/dashboard`, `/dropshipping-ceo`, `/github-agent`, `/legal-compliance`, `/marketing-command-center`, `/news`, `/news/article/:slug`, `/news/miami`, `/news/new-york`, `/portfolio`, `/portfolio/:symbol`, `/projects`, `/promo-video`, `/radio`, `/revenue-engine`, `/revenue-engine/advanced`, `/tools`
+- `client/src/App.tsx`: `/`, `/agent-chat`, `/agents-office`, `/agents-office/panel`, `/app-qa-agent`, `/assistant`, `/automations`, `/ceo`, `/clippers`, `/code-agent`, `/cybersecurity-agent`, `/dashboard`, `/dropshipping-ceo`, `/github-agent`, `/legal-compliance`, `/marketing-command-center`, `/news`, `/news/article/:slug`, `/news/miami`, `/news/new-york`, `/portfolio`, `/portfolio/:symbol`, `/projects`, `/promo-video`, `/radio`, `/revenue-engine`, `/revenue-engine/advanced`, `/tools`
 - `script/software-factory-office-ui-fixture.mjs`: `/api/agent-council/state`, `/api/agents-office/connections`, `/api/agents-office/kong-snapshot`, `/api/ceo/conversation-history`, `/api/legal-compliance/reports`, `/api/monthly-goals`
+- `server/agent-chat-routes.ts`: `/api/agent-chat/:agentId/messages`, `/api/agent-chat/:agentId/threads`, `/api/agent-chat/:agentId/threads/:threadId`, `/api/agent-chat/agents`, `/api/agent-chat/handoffs`
 - `server/agent-council-routes.ts`: `/api/agent-company/orders`, `/api/agent-company/orders/:id/done`, `/api/agent-council/internal-work`, `/api/agent-council/run`, `/api/agent-council/state`
 - `server/assistant.ts`: `/api/assistant/chat`, `/api/assistant/context`, `/api/assistant/transcribe`
-- `server/blackroom-control-routes.ts`: `/api/blackroom-agent`, `/api/blackroom-agent/analytics/import`, `/api/blackroom-agent/analytics/refresh`, `/api/blackroom-agent/chat`, `/api/blackroom-agent/media/:reservationId`, `/api/blackroom-agent/media/chunked`, `/api/blackroom-agent/media/chunked/:uploadId/:index`, `/api/blackroom-agent/media/chunked/:uploadId/complete`, `/api/blackroom-agent/metricool/schedule`, `/api/blackroom-agent/pause`, `/api/blackroom-agent/remote`, `/api/blackroom-agent/start`, `/api/blackroom-agent/work-now`, `/blackroom`
+- `server/blackroom-ceo-chat-routes.ts`: `/api/blackroom-ceo-chat`, `/api/blackroom-ceo-chat/approvals/:id/:decision`, `/api/blackroom-ceo-chat/messages`
+- `server/blackroom-control-routes.ts`: `/api/blackroom-agent`, `/api/blackroom-agent/analytics/import`, `/api/blackroom-agent/analytics/refresh`, `/api/blackroom-agent/chat`, `/api/blackroom-agent/clippers-orchestra`, `/api/blackroom-agent/media/:reservationId`, `/api/blackroom-agent/media/chunked`, `/api/blackroom-agent/media/chunked/:uploadId/:index`, `/api/blackroom-agent/media/chunked/:uploadId/complete`, `/api/blackroom-agent/metricool/schedule`, `/api/blackroom-agent/pause`, `/api/blackroom-agent/remote`, `/api/blackroom-agent/start`, `/api/blackroom-agent/work-now`, `/blackroom`
+- `server/blackroom-team-routes.ts`: `/api/blackroom-team`, `/api/blackroom-team/:id/action/:action`, `/api/blackroom-team/:id/run`, `/api/blackroom-team/:id/status`
+- `server/clippers-orchestra-routes.ts`: `/api/clippers/orchestra/status`
+- `server/clippers-streamers-status.ts`: `/api/clippers/streamers/holds/resolved`, `/api/clippers/streamers/status`, `/api/clippers/streamers/takedown`, `/api/clippers/streamers/takedown/removed`
 - `server/index.ts`: `/clippers/legal/privacy`, `/clippers/legal/terms`, `/clippers/review-demo`, `/dropshipping/legal/checkout-readiness`, `/dropshipping/legal/privacy`, `/dropshipping/legal/refund-policy`, `/dropshipping/legal/shipping-policy`, `/dropshipping/legal/terms`, `/tiktokxXFfBZAFcOIGUKNMLUhs8E9M66NBKXCP.txt`, `/tiktokzjohuZmzXSsUwXRmI6fqM3JDKo7jsLUN.txt`
+- `server/kong-mirror-routes.ts`: `/api/kong-mirror/:key/:decision`, `/api/kong-mirror/:key/chat`, `/api/kong-mirror/images/:imageKey`, `/api/kong-mirror/reports`
 - `server/kong-operations-routes.ts`: `/api/kong-ops/cards`, `/api/kong-ops/lease`, `/api/kong-ops/metrics`, `/api/kong-ops/publications`, `/api/kong-ops/reconcile`, `/api/kong-ops/state`
+- `server/kong-repair-routes.ts`: `/api/integrations/kong/software-repairs`, `/api/integrations/kong/software-repairs/status`, `/api/integrations/kong/software-repairs/worker`, `/api/kong-repairs`, `/api/kong-repairs/:key/:action`, `/api/kong-repairs/pull`
 - `server/kong-supervisor-routes.ts`: `/api/kong-supervisor/chat`, `/api/kong-supervisor/state`
 - `server/local-auth.ts`: `/api/auth/login`, `/api/auth/logout`, `/api/auth/me`, `/api/auth/register`
 - `server/marketing-learning-routes.ts`: `/api/marketing-command-center`, `/api/marketing-command-center/run-day`
 - `server/office-business-routes.ts`: `/api/agents-office/${route.path}`
 - `server/office-review-benchmarks.ts`: `/diagnostics`, `/notes`, `/profile`, `/projects/:id`, `/report`, `/users/:id`
-- `server/office-routes.ts`: `/api/agents-office/cities`, `/api/agents-office/connections`, `/api/agents-office/contact-action`, `/api/agents-office/kong-snapshot`, `/api/agents-office/runs`
+- `server/office-routes.ts`: `/api/agents-office/cities`, `/api/agents-office/connections`, `/api/agents-office/contact-action`, `/api/agents-office/kong-snapshot`, `/api/agents-office/runs`, `/api/agents-office/verification`
 - `server/replit_integrations/chat/routes.ts`: `/api/conversations`, `/api/conversations/:id`, `/api/conversations/:id/messages`
 - `server/replit_integrations/image/routes.ts`: `/api/generate-image`
 - `server/revenue-stripe-routes.ts`: `/api/stripe/revenue-readiness`, `/api/stripe/revenue-webhook`
@@ -74,34 +81,44 @@ Package: `rest-express`
 - `server/shopify-routes.ts`: `/api/shopify/install`, `/api/shopify/oauth/callback`, `/api/shopify/oauth/start`, `/api/shopify/oauth/status`
 - `server/software-factory-routes.ts`: `/api/software-factory`, `/api/software-factory/budget`, `/api/software-factory/company-orders`, `/api/software-factory/pause`, `/api/software-factory/projects`
 - `server/telegram-routes.ts`: `/api/ceo/conversation-history`, `/api/ceo/go-live`, `/api/ceo/go-live/evidence`, `/api/ceo/readiness`, `/api/telegram/configure`, `/api/telegram/disconnect`, `/api/telegram/health`, `/api/telegram/setup-webhook`, `/api/telegram/status`, `/api/telegram/test`, `/api/telegram/test-ceo-brief`, `/api/telegram/toggle`, `/api/telegram/webhook`, `/api/telegram/webhook-status`
+- `server/workspace-access.ts`: `/api/workspace/invitations`, `/api/workspace/invitations/:id`, `/api/workspace/invitations/accept`, `/api/workspace/invitations/preview`, `/api/workspace/me`, `/api/workspace/partners`, `/api/workspace/partners/:userId`
 - `tests/agents-office-local-qa.test.mjs`: `/api/agent-council/state`, `/api/agents-office/cities`, `/api/agents-office/connections`, `/api/agents-office/kong-snapshot`, `/api/app-qa-agent/status`, `/api/ceo/conversation-history`, `/api/ceo/go-live`, `/api/ceo/readiness`, `/api/fixture-owner-boundary`, `/api/github/repos`, `/api/github/repos/fixture/office-fixture/contents`, `/api/github/status`, `/api/legal-compliance/reports`, `/api/monthly-goals`, `/api/projects`, `/health`
 - `tests/app-qa-agent.test.ts`: `([^`
 - `tests/app-qa-status-readonly.test.mjs`: `/api/app-qa-agent/scan`, `/api/app-qa-agent/status`
 - `tests/blackroom-remote-control.test.ts`: `/api/blackroom-agent`, `/api/blackroom-agent/analytics/import`, `/api/blackroom-agent/pause`, `/api/blackroom-agent/start`, `/api/blackroom-agent/work-now`, `/blackroom`
+- `tests/clippers-office-area.test.mjs`: `/`, `/api/auth/me`, `/area.css`, `/area.js`
+- `tests/clippers-orchestra-endpoint.test.ts`: `/api/blackroom-agent/media/:reservationId`, `/api/blackroom-agent/remote`
 - `tests/clippers-owned-source-scripts.test.ts`: `/api/clippers/external-closeout-next-action`, `/api/clippers/external-closeout-operator-queue`, `/api/clippers/external-closeout-pack`, `/api/clippers/external-closeout-proof-todo`, `/api/clippers/external-closeout-repair-work-packet`, `/api/clippers/operational-readiness`, `/api/clippers/prepare-external-closeout-pack`, `/api/clippers/prepare-operational-readiness`, `/api/clippers/run-intake-refresh-sweep`, `/api/clippers/run-post-connect-activation-sweep`
 - `tests/developer-autopilot-wiring.test.ts`: `/api/revenue-engine/delivery-workspaces/app-qa-gate`, `/api/revenue-engine/delivery-workspaces/github-handoff`, `/api/revenue-engine/delivery-workspaces/pr-status`, `/api/revenue-engine/delivery-workspaces/release-gate`
 - `tests/harness/agents-world-integrated.tsx`: `/agents-office`
 - `tests/kong-office-browser-qa.test.mjs`: `/api/agent-council/state`, `/api/agents-office/cities`, `/api/agents-office/connections`, `/api/agents-office/kong-snapshot`, `/api/app-qa-agent/status`, `/api/ceo/conversation-history`, `/api/ceo/go-live`, `/api/ceo/readiness`, `/api/fixture-owner-boundary`, `/api/github/repos`, `/api/github/repos/fixture/office-fixture/contents`, `/api/github/status`, `/api/legal-compliance/reports`, `/api/monthly-goals`, `/api/projects`, `/health`
+- `tests/kong-repair-status-panel.test.mjs`: `/`, `/api/agent-council/state`, `/api/auth/me`, `/api/kong-supervisor/state`, `/panel.js`
 - `tests/software-factory-panel.test.mjs`: `/`, `/api/software-factory`, `/api/software-factory/:action`, `/panel.js`
+- `tests/user-context.test.ts`: `/api/auth/login`, `/api/github/status`
+- `tests/workspace-access.test.ts`: `/api/agent-company/orders`, `/api/blackroom-team`, `/api/github/repos/:owner/:repo/file`, `/api/investments`, `/api/portfolio/summary`, `/api/radio/slots`, `/api/workspace/me`, `/api/x`, `/blackroom`, `/owner`
 
 ## Test Inventory
-- `tests/._dropshipping-ceo.test.ts`
-- `tests/._radio-youtube-command.test.ts`
-- `tests/._rate-limit.test.ts`
-- `tests/._user-context.test.ts`
+- `tests/agent-chat-context-routes.test.ts`
+- `tests/agent-chat-grounding.test.ts`
+- `tests/agent-chat.test.ts`
 - `tests/agent-company.test.ts`
 - `tests/agent-council-owner.test.ts`
 - `tests/agent-council-store.test.ts`
 - `tests/agent-council.test.ts`
 - `tests/agent-live-status.test.ts`
+- `tests/agent-vitality.test.ts`
+- `tests/agents-down-fixes.test.ts`
 - `tests/agents-world-integration.test.ts`
 - `tests/ai-cost-notifications.test.ts`
+- `tests/ai-model-router.test.ts`
 - `tests/ai-router-cost-override.test.ts`
 - `tests/app-qa-agent.test.ts`
 - `tests/app-qa-health-probe.test.ts`
 - `tests/assistant-chat-flow.test.ts`
 - `tests/automation-registry.test.ts`
 - `tests/background-scheduler-policy.test.ts`
+- `tests/blackroom-academy.test.ts`
+- `tests/blackroom-ceo-chat.test.ts`
 - `tests/blackroom-chat.test.ts`
 - `tests/blackroom-content-agent.test.ts`
 - `tests/blackroom-daily-queue.test.ts`
@@ -110,6 +127,7 @@ Package: `rest-express`
 - `tests/blackroom-growth-ceo.test.ts`
 - `tests/blackroom-learning-observations.test.ts`
 - `tests/blackroom-learning-panel.test.ts`
+- `tests/blackroom-life.test.ts`
 - `tests/blackroom-links.test.ts`
 - `tests/blackroom-local-evidence.test.ts`
 - `tests/blackroom-local-worker.test.ts`
@@ -118,6 +136,14 @@ Package: `rest-express`
 - `tests/blackroom-metricool-bridge.test.ts`
 - `tests/blackroom-office-operations.test.ts`
 - `tests/blackroom-remote-control.test.ts`
+- `tests/blackroom-team-blackroom-analytics.test.ts`
+- `tests/blackroom-team-blackroom-ceo.test.ts`
+- `tests/blackroom-team-blackroom-competition.test.ts`
+- `tests/blackroom-team-blackroom-publisher.test.ts`
+- `tests/blackroom-team-blackroom-scripts.test.ts`
+- `tests/blackroom-team-blackroom-website.test.ts`
+- `tests/blackroom-team-registry.test.ts`
+- `tests/blackroom-team-scheduler.test.ts`
 - `tests/blackroom-verified-learning.test.ts`
 - `tests/ceo-backup-check-cli.test.ts`
 - `tests/ceo-brief-cli.test.ts`
@@ -125,6 +151,7 @@ Package: `rest-express`
 - `tests/ceo-conversation-history.test.ts`
 - `tests/ceo-db-check-cli.test.ts`
 - `tests/ceo-doctor-cli.test.ts`
+- `tests/ceo-domain-policy.test.ts`
 - `tests/ceo-go-live-cli.test.ts`
 - `tests/ceo-operability.test.ts`
 - `tests/ceo-operational-health.test.ts`
@@ -135,6 +162,8 @@ Package: `rest-express`
 - `tests/client-auth-state.test.ts`
 - `tests/clipper-observed-status.test.ts`
 - `tests/clippers-agent.test.ts`
+- `tests/clippers-cloud-lanes-status.test.ts`
+- `tests/clippers-growth-view.test.ts`
 - `tests/clippers-local-news-agent.test.ts`
 - `tests/clippers-local-news-growth.test.ts`
 - `tests/clippers-local-news-metricool.test.ts`
@@ -142,12 +171,18 @@ Package: `rest-express`
 - `tests/clippers-local-news-scheduler.test.ts`
 - `tests/clippers-local-news-state-retention.test.ts`
 - `tests/clippers-local-news-translation.test.ts`
+- `tests/clippers-office-sources.test.ts`
+- `tests/clippers-orchestra-endpoint.test.ts`
+- `tests/clippers-orchestra.test.ts`
 - `tests/clippers-owned-source-scripts.test.ts`
 - `tests/clippers-runtime-status.test.ts`
+- `tests/clippers-streamer-pending-actions-postgres.test.ts`
+- `tests/clippers-streamers-status.test.ts`
 - `tests/clippers-upload-metricool-media.test.ts`
 - `tests/clippers-youtube-audit-pages.test.ts`
 - `tests/code-agent-security.test.ts`
 - `tests/company-office-simulation.test.ts`
+- `tests/credit-pacer.test.ts`
 - `tests/cybersecurity-agent.test.ts`
 - `tests/db-config.test.ts`
 - `tests/developer-autopilot-wiring.test.ts`
@@ -155,15 +190,24 @@ Package: `rest-express`
 - `tests/developer-health-inventory.test.ts`
 - `tests/dropshipping-ceo.test.ts`
 - `tests/env-loader-core.test.ts`
+- `tests/factory-api-invocation.test.ts`
+- `tests/factory-api-request-binding.test.ts`
+- `tests/factory-office-agents.test.ts`
 - `tests/github-client-security.test.ts`
 - `tests/google-connector.test.ts`
 - `tests/google-drive-folder-command.test.ts`
 - `tests/google-drive-oauth.test.ts`
 - `tests/kong-company-routes.test.ts`
 - `tests/kong-company.test.ts`
+- `tests/kong-mirror-lab.test.ts`
+- `tests/kong-mirror-qa-scenarios.test.ts`
+- `tests/kong-office-orders.test.ts`
 - `tests/kong-office-wing.test.ts`
 - `tests/kong-operations-routes.test.ts`
 - `tests/kong-operations.test.ts`
+- `tests/kong-repair-bridge.test.ts`
+- `tests/kong-repair-pull.test.ts`
+- `tests/kong-same-rules.test.ts`
 - `tests/legacy-publication-containment.test.ts`
 - `tests/legal-compliance-agent.test.ts`
 - `tests/local-auth-cli.test.ts`
@@ -186,20 +230,26 @@ Package: `rest-express`
 - `tests/office-capability-lifecycle.test.ts`
 - `tests/office-capability-training.test.ts`
 - `tests/office-career-reconciliation.test.ts`
+- `tests/office-central-panel.test.ts`
 - `tests/office-city-agents.test.ts`
 - `tests/office-claude.test.ts`
 - `tests/office-cloud-runtime.test.ts`
 - `tests/office-cloud-store.test.ts`
 - `tests/office-council-migration.test.ts`
+- `tests/office-credit-audit.test.ts`
 - `tests/office-editorial-scheduler.test.ts`
 - `tests/office-editorial-work.test.ts`
 - `tests/office-execution.test.ts`
+- `tests/office-github-role-source.test.ts`
 - `tests/office-github.test.ts`
 - `tests/office-internal-work.test.ts`
 - `tests/office-kong-central-agents.test.ts`
 - `tests/office-kong-collaboration.test.ts`
 - `tests/office-kong-supervisor.test.ts`
 - `tests/office-kong.test.ts`
+- `tests/office-layout.test.ts`
+- `tests/office-lock-timeout.test.ts`
+- `tests/office-on-duty.test.ts`
 - `tests/office-openai.test.ts`
 - `tests/office-protocol.test.ts`
 - `tests/office-radio-training.test.ts`
@@ -211,16 +261,24 @@ Package: `rest-express`
 - `tests/office-role-curricula.test.ts`
 - `tests/office-role-lifecycle.test.ts`
 - `tests/office-role-snapshots.test.ts`
+- `tests/office-role-work-activity.test.ts`
 - `tests/office-role-work.test.ts`
 - `tests/office-routes.test.ts`
 - `tests/office-runtime.test.ts`
+- `tests/office-self-heal.test.ts`
 - `tests/office-shared-credits.test.ts`
+- `tests/office-source-documents.test.ts`
+- `tests/office-status.test.ts`
 - `tests/office-token-budget.test.ts`
 - `tests/office-training-receipts.test.ts`
+- `tests/office-verification.test.ts`
+- `tests/office-web-role-live.test.ts`
 - `tests/office-web-role-sources.test.ts`
 - `tests/office-web-role-store.test.ts`
 - `tests/office-web-source-scheduler.test.ts`
 - `tests/office-worker-capabilities.test.ts`
+- `tests/office-worker-once-failure-code.test.ts`
+- `tests/office-worker-once.test.ts`
 - `tests/office-worker-watchdog.test.ts`
 - `tests/owner-office-storage.test.ts`
 - `tests/public-local-news.test.ts`
@@ -238,10 +296,15 @@ Package: `rest-express`
 - `tests/revenue-engine.test.ts`
 - `tests/revenue-stripe.test.ts`
 - `tests/session-config.test.ts`
+- `tests/shared-credit-config-from-db.test.ts`
+- `tests/shared-credit-grant.test.ts`
 - `tests/shared-openai-credit-ledger.test.ts`
 - `tests/shared-openai-credit-store.test.ts`
 - `tests/shopify-oauth.test.ts`
 - `tests/software-factory-actions.test.ts`
+- `tests/software-factory-anthropic-fallback.test.ts`
+- `tests/software-factory-api-budget.test.ts`
+- `tests/software-factory-api-postgres.test.ts`
 - `tests/software-factory-asistente-build.test.ts`
 - `tests/software-factory-asistente-operator.test.ts`
 - `tests/software-factory-asistente-review.test.ts`
@@ -251,6 +314,8 @@ Package: `rest-express`
 - `tests/software-factory-builder.test.ts`
 - `tests/software-factory-company-scheduler.test.ts`
 - `tests/software-factory-company.test.ts`
+- `tests/software-factory-db-cli.test.ts`
+- `tests/software-factory-diagnostics.test.ts`
 - `tests/software-factory-encrypted-state.test.ts`
 - `tests/software-factory-gcs.test.ts`
 - `tests/software-factory-github-client.test.ts`
@@ -262,12 +327,14 @@ Package: `rest-express`
 - `tests/software-factory-object-store.test.ts`
 - `tests/software-factory-office-connection.test.ts`
 - `tests/software-factory-office-mode.test.ts`
+- `tests/software-factory-office-review.test.ts`
 - `tests/software-factory-office-ui-artifact.test.ts`
 - `tests/software-factory-office-ui-evidence.test.ts`
 - `tests/software-factory-once.test.ts`
 - `tests/software-factory-openai-builder.test.ts`
 - `tests/software-factory-openai-transport.test.ts`
 - `tests/software-factory-openai.test.ts`
+- `tests/software-factory-operator-config.test.ts`
 - `tests/software-factory-order-evidence.test.ts`
 - `tests/software-factory-pilot-review.test.ts`
 - `tests/software-factory-pipeline.test.ts`
@@ -296,11 +363,11 @@ Package: `rest-express`
 - `tests/user-migration-plan.test.ts`
 - `tests/whatsapp-backend-consumer.test.ts`
 - `tests/whatsapp-pr330.test.ts`
+- `tests/workspace-access.test.ts`
 
 ## Key Files
-- `client/src/pages/._assistant.tsx` (client-page)
-- `client/src/pages/._dropshipping-ceo.tsx` (client-page)
-- `client/src/pages/agents-office.tsx` (client-page; 168 symbols, 18 imports)
+- `client/src/pages/agent-chat.tsx` (client-page; 29 symbols, 6 imports)
+- `client/src/pages/agents-office.tsx` (client-page; 98 symbols, 24 imports)
 - `client/src/pages/app-qa-agent.tsx` (client-page; 12 symbols, 9 imports)
 - `client/src/pages/assistant.tsx` (client-page; 49 symbols, 7 imports)
 - `client/src/pages/auth.tsx` (client-page; 6 symbols, 8 imports)
@@ -312,6 +379,7 @@ Package: `rest-express`
 - `client/src/pages/dropshipping-ceo.tsx` (client-page; 76 symbols, 13 imports)
 - `client/src/pages/github-agent.tsx` (client-page; 32 symbols, 9 imports)
 - `client/src/pages/investment-detail.tsx` (client-page; 41 symbols, 9 imports)
+- `client/src/pages/invite.tsx` (client-page; 8 symbols, 9 imports)
 - `client/src/pages/legal-compliance.tsx` (client-page; 5 symbols, 7 imports)
 - `client/src/pages/local-news-public.tsx` (client-page; 73 symbols, 4 imports)
 - `client/src/pages/marketing-command-center.tsx` (client-page; 15 symbols, 10 imports)
@@ -323,7 +391,7 @@ Package: `rest-express`
 - `client/src/pages/revenue-engine-simple.tsx` (client-page; 33 symbols, 7 imports)
 - `client/src/pages/tools.tsx` (client-page; 2 symbols, 6 imports)
 - `package.json` (package)
-- `script/blackroom-control-server.mjs` (script; 82 symbols, 11 imports)
+- `script/blackroom-control-server.mjs` (script; 87 symbols, 12 imports)
 - `script/blackroom-daily-agent.ts` (script; 16 symbols, 2 imports)
 - `script/blackroom-deterministic-editor.ts` (script; 60 symbols, 8 imports)
 - `script/blackroom-local-evidence.ts` (script; 30 symbols, 10 imports)
@@ -347,37 +415,37 @@ Package: `rest-express`
 - `script/ceo-verify-local.mjs` (script; 2 symbols, 1 imports)
 - `script/clippers-account-permission-readiness.mjs` (script; 82 symbols, 2 imports)
 - `script/clippers-cleanup-published-vyro-media.mjs` (script; 47 symbols, 4 imports)
+- `script/clippers-cloud-lanes.mjs` (script; 82 symbols, 6 imports)
 - `script/clippers-content-learning-ceo.mjs` (script; 85 symbols, 3 imports)
 - `script/clippers-content-local-worker.mjs` (script; 112 symbols, 10 imports)
-- `script/clippers-daily-watchdog.mjs` (script; 86 symbols, 3 imports)
+- `script/clippers-creator-routing.mjs` (script; 53 symbols, 8 imports)
+- `script/clippers-creator-selection.mjs` (script; 73 symbols, 1 imports)
+- `script/clippers-daily-learning.mjs` (script; 113 symbols, 12 imports)
+- `script/clippers-daily-watchdog.mjs` (script; 102 symbols, 8 imports)
+- `script/clippers-drive-workspace.mjs` (script; 59 symbols, 6 imports)
 - `script/clippers-external-closeout-pack.mjs` (script; 249 symbols, 3 imports)
-- `script/clippers-free-local-worker.mjs` (script; 41 symbols, 5 imports)
+- `script/clippers-free-local-worker.mjs` (script; 46 symbols, 6 imports)
 - `script/clippers-generate-owned-gap-sources.mjs` (script; 30 symbols, 3 imports)
 - `script/clippers-generate-owned-meme-sources.ts` (script; 23 symbols, 3 imports)
 - `script/clippers-generate-owned-sports-streamer-sources.ts` (script; 26 symbols, 3 imports)
 - `script/clippers-generate-owned-weekly-backlog-sources.ts` (script; 34 symbols, 3 imports)
 - `script/clippers-import-external-closeout-evidence.ts` (script; 117 symbols, 3 imports)
 - `script/clippers-local-subtitles.mjs` (script; 47 symbols, 5 imports)
+- `script/clippers-mac-ledger-guard.mjs` (script; 68 symbols, 8 imports)
 - `script/clippers-marketplace-intake.mjs` (script; 59 symbols, 3 imports)
 - `script/clippers-marketplace-refresh.mjs` (script; 50 symbols, 4 imports)
-- `script/clippers-metricool-autopilot.mjs` (script; 116 symbols, 4 imports)
-- `script/clippers-motivation-shorts.mjs` (script; 157 symbols, 6 imports)
+- `script/clippers-metricool-autopilot.mjs` (script; 118 symbols, 6 imports)
+- `script/clippers-motivation-shorts.mjs` (script; 158 symbols, 7 imports)
+- `script/clippers-native-media-receipts.mjs` (script; 34 symbols, 9 imports)
 - `script/clippers-operational-readiness.mjs` (script; 51 symbols, 4 imports)
-- `script/clippers-prepare-vyro-campaign-drafts.mjs` (script; 23 symbols, 4 imports)
-- `script/clippers-reconcile-publications.mjs` (script; 74 symbols, 3 imports)
-- `script/clippers-record-owned-meme-rights.ts` (script; 10 symbols, 1 imports)
-- `script/clippers-record-owned-source-rights.mjs` (script; 88 symbols, 3 imports)
-- `script/clippers-render-campaign-drafts.mjs` (script; 118 symbols, 6 imports)
-- `script/clippers-selected-env.mjs` (script; 11 symbols, 2 imports)
-- `script/clippers-sleep-video-generator.mjs` (script; 93 symbols, 6 imports)
-- `script/clippers-streamer-growth-ceo.mjs` (script; 170 symbols, 5 imports)
-- `script/clippers-sync-metricool-source-readiness.mjs` (script; 28 symbols, 3 imports)
-- `script/clippers-tiktok-preflight.ts` (script; 15 symbols, 1 imports)
-- `script/clippers-upload-metricool-media.ts` (script; 51 symbols, 7 imports)
-- `script/clippers-youtube-delivery-worker.mjs` (script; 30 symbols, 6 imports)
-- `script/clippers-youtube-oauth-bootstrap.mjs` (script; 75 symbols, 6 imports)
-- `script/clippers-youtube-publish-worker.mjs` (script; 105 symbols, 6 imports)
-- `script/clippers-youtube-upload-packager.mjs` (script; 135 symbols, 7 imports)
+- `script/clippers-orchestra-analytics.mjs` (script; 23 symbols, 6 imports)
+- `script/clippers-orchestra-relay.mjs` (script; 6 symbols, 2 imports)
+- `script/clippers-orchestra-report.mjs` (script; 128 symbols, 9 imports)
+- `script/clippers-orchestra-sender.mjs` (script; 41 symbols, 7 imports)
+- `script/clippers-portable-magick.mjs` (script; 10 symbols, 3 imports)
+- `script/clippers-portfolio-discovery.mjs` (script; 94 symbols, 7 imports)
+- `script/clippers-portfolio-metricool.mjs` (script; 113 symbols, 1 imports)
+- `script/clippers-portfolio-prepare.mjs` (script; 108 symbols, 9 imports)
 
 ## How Agents Should Use This
 1. Read this map before broad repo exploration.

@@ -101,7 +101,7 @@ test("abort after a verified PR preserves the completed outcome", async () => {
     assert.ok("candidate" in result);
     assert.equal(result.costCents, 3);
 });
-test("Responses composition counts tokens, generates patch and verifies GitHub before opening PR", async () => {
+test("Responses composition holds unpriced counting before model or GitHub writes", async () => {
     const f = fixture(), calls: string[] = [];
     const gitHash = (type: string, bytes: Buffer) => createHash("sha1").update(`${type} ${bytes.length}\0`).update(bytes).digest("hex");
     const blob = (text: string) => gitHash("blob", Buffer.from(text));
@@ -143,12 +143,12 @@ test("Responses composition counts tokens, generates patch and verifies GitHub b
       github:{ exportSource: f.options.exportSource, publisherClient, actionsClient, publicationCostCents: 0, now: () => new Date(now), maxPolls: 1,
         repositories: { [project.repo]: { baseBranch: "main", checks: { workflowId: 7, workflowPath, workflowSha256: createHash("sha256").update(workflow).digest("hex"), jobName: "isolated", testStep: "test", buildStep: "build", browserStep: "browser" } } } } });
     const result = await build(project, state, { signal: f.controller.signal, maxCostCents: 10 });
-    assert.ok("candidate" in result);
-    assert.equal(result.costCents, 1);
-    assert.ok(calls.indexOf("eligibility") < calls.indexOf("model"));
-    assert.ok(calls.indexOf("count") < calls.indexOf("model"));
-    assert.ok(calls.indexOf("model") < calls.indexOf("push"));
-    assert.ok(calls.indexOf("jobs") < calls.indexOf("pr"));
+    assert.equal("candidate" in result,false);
+    assert.equal(result.costCents,0);
+    assert.equal(calls.includes("count"),false);
+    assert.equal(calls.includes("model"),false);
+    assert.equal(calls.includes("push"),false);
+    assert.equal(calls.includes("pr"),false);
 });
 
 test("classifier cannot replace verified identity and failures preserve the PR", async () => {

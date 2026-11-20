@@ -158,20 +158,43 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Tools, browser, PostgreSQL binaries and build output the tests rely on
+      - name: Install media and shell tools for tests
+        timeout-minutes: 10
         run: |
           set -euo pipefail
-          # ffmpeg (media renders), zsh (operator wrappers); origin/main (launch-agent installer test).
-          sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg zsh > /dev/null
+          # The regional EC2 mirror can download media packages extremely slowly.
+          # Use Ubuntu's primary archive; suites, components and signing keys stay intact.
+          # Hosted images may route these sources through a file-based mirror list.
+          for source in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources /etc/apt/apt-mirrors.txt; do
+            if [ -f "$source" ]; then
+              sudo sed -i -E 's#https?://([[:alnum:].-]+\.)?archive\.ubuntu\.com/ubuntu#https://archive.ubuntu.com/ubuntu#g' "$source"
+            fi
+          done
+          # Keep package-manager prompts from blocking an unattended runner.
+          sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
+          sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends ffmpeg zsh
+      - name: Fetch main for the launch-agent installer test
+        timeout-minutes: 4
+        run: |
+          set -euo pipefail
           # Anonymous fetch of the public repository, retried; only one allowlisted test needs it.
           for attempt in 1 2 3; do
             if git -c credential.helper= fetch --quiet --depth=1 "https://github.com/$GITHUB_REPOSITORY.git" +refs/heads/main:refs/remotes/origin/main; then break; fi
             if [ "$attempt" = 3 ]; then echo "::warning::could not fetch main; tests needing origin/main will fail"; fi
             sleep 5
           done
-          npx playwright install chromium
+      - name: Install Chromium for browser tests
+        timeout-minutes: 5
+        run: npx playwright install chromium
+      - name: Build assets for tests
+        timeout-minutes: 8
+        run: |
           # Browser QA and bundle tests read dist/ (index.html, table.sql).
           npm run build > "$RUNNER_TEMP/build.log" 2>&1 || { tail -60 "$RUNNER_TEMP/build.log"; exit 1; }
+      - name: Locate PostgreSQL test binaries
+        timeout-minutes: 1
+        run: |
+          set -euo pipefail
           pg_bin=$(find /usr/lib/postgresql -mindepth 2 -maxdepth 2 -type d -name bin | sort -V | tail -1)
           test -x "$pg_bin/initdb"
           echo "FACTORY_TEST_POSTGRES_BIN=$pg_bin" >> "$GITHUB_ENV"

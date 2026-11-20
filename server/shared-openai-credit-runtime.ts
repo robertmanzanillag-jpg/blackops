@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { z } from "zod";
 import { createSharedOpenAiCreditLedger } from "./shared-openai-credit-ledger";
-import { createSharedCreditTransaction } from "./shared-openai-credit-store";
+import { createSharedCreditRead, createSharedCreditTransaction } from "./shared-openai-credit-store";
 import { getCouncilStore } from "./agent-council-store";
 
 const configSchema = z.object({
@@ -21,7 +21,8 @@ export async function loadSharedCreditRuntime(env: NodeJS.ProcessEnv, now: () =>
   if (Buffer.byteLength(raw) > 16384) throw Error("CREDIT_RUNTIME_CONFIGURATION_INVALID");
   const config = configSchema.parse(JSON.parse(raw));
   const ledger = createSharedOpenAiCreditLedger({ grant: config.grant, now, maximumGrantObservationAgeMs: 60000,
-    transact: createSharedCreditTransaction(await getCouncilStore(), config.grant.accountScope) });
+    transact: createSharedCreditTransaction(await getCouncilStore(), config.grant.accountScope),
+    read: createSharedCreditRead(await getCouncilStore(), config.grant.accountScope) });
   // Read validates existing state but never initializes it on startup/recovery.
   await ledger.status();
   return { ledger, pricing: config.pricing };

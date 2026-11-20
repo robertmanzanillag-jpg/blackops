@@ -41,7 +41,7 @@ async function main() {
   await import("../server/env-loader");
   const { apply } = parseOfficeSourceMigrateArgs(process.argv.slice(2));
   if (!process.env.DATABASE_URL?.trim()) throw new Error("DATABASE_URL_REQUIRED");
-  const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 10000 });
+  const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 10000 , application_name: "blackops-migrate" });
   pool.on("error", () => undefined);
   try {
     const client = await pool.connect();

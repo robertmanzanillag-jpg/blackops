@@ -96,13 +96,12 @@ export function buildKongOfficeWing(evidence: OfficeKongAuditResult["evidence"] 
     { id: "kong-videos", name: "Videos KONG", role: "Contenido", description: "Recibe fichas verificadas. La publicación corresponde al publicador autorizado.", color: "#a3e635", status: media["kong-videos"] || { state: "offline", label: "Sin evidencia" } },
     { id: "kong-metrics", name: "Métricas KONG", role: "Medición", description: "Mide resultados de publicaciones confirmadas.", color: "#38bdf8", status: media["kong-metrics"] || { state: "offline", label: "Sin evidencia" } },
   );
-  const nativeIds: string[] = [];
   for (const signal of nativeSignals) {
     const existing = agents.find(agent => agent.id === (signal.id === "kong-videos" ? "kong-videos" : signal.agent ? `kong:${signal.agent.id}` : signal.id));
     const status: AgentLiveStatus = signal.signal === "current" ? { state: "available", label: "Actividad reportada; ejecución sin verificar", detail: signal.detail }
       : (signal.signal === "last-result" && kongCentralOnDuty(signal.agent, now)) || { state: signal.signal === "alert" ? "needs-setup" : "offline", label: signal.label, detail: signal.detail };
+    // A seat without a real desk never creates one: every KONG desk comes from KONG's own snapshot.
     if (existing) { if (signal.id !== "kong-videos") existing.status = status; existing.kongEvidence = signal; }
-    else { agents.push({id:signal.id,name:signal.name,role:signal.role,description:signal.detail,color:"#a3e635",status,kongEvidence:signal}); nativeIds.push(signal.id); }
   }
   const grouped = new Set(centralGroups.flatMap(group => group.ids));
   const busyCities = new Set(assignment?.busyCityIds ?? []);
@@ -113,7 +112,6 @@ export function buildKongOfficeWing(evidence: OfficeKongAuditResult["evidence"] 
     (cityOrder.get(a.city.id) ?? Infinity) - (cityOrder.get(b.city.id) ?? Infinity)) || a.city.id.localeCompare(b.city.id));
   const centralDepartments = [
     ...centralGroups.map(({ids, ...group}) => ({...group, agentIds: ids.map(id => `kong:${id}`)})),
-    { id: "kong-native", name: "Equipo Native KONG", color: "#a3e635", agentIds: nativeIds },
     { id: "kong-systems", name: "Sistemas KONG", color: "#c084fc", agentIds: [...ids].filter(id => !grouped.has(id)).map(id => `kong:${id}`) },
     { id: "kong-media", name: "Contenido KONG", color: "#f472b6", agentIds: ["kong-videos", "kong-metrics"] },
   ].filter(group => group.agentIds.length);

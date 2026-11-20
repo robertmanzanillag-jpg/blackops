@@ -1,0 +1,144 @@
+name: Clippers cloud lanes
+
+# Replaces the Clippers Mac LaunchAgents so the factory runs with the owner's Mac OFF
+# (docs/clippers-cloud-lanes.md):
+#   owned_content (Mac 04:00 + 06:30): Drive workspace -> motivation ES/EN render (ffmpeg + ImageMagick 6 + bundled
+#     font) -> YouTube Data API delivery (only with CLIPPERS_YOUTUBE_CLOUD_UPLOAD_ENABLED=true) -> media to Drive,
+#     ledgers to Postgres after EACH lane.
+#   sleep (weekly, Sunday 00:00 NY): the 8 h sleep render + its delivery, its own job behind
+#     CLIPPERS_CLOUD_SLEEP_ENABLED (default off) until its runtime is measured.
+#   marketplace  (Mac 07:00): owner snapshot intake -> render -> Drive -> CEO -> Metricool -> reconcile.
+#     The logged-in marketplace refresh stays off in the cloud (owner snapshots via Drive).
+#   watchdog     (Mac 10:00): covered by clippers-streamers*.yml; it is only retired, nothing runs here.
+#
+# Cadence: like the other cloud jobs, after each "Office worker (cloud)" run (external cron, every 15 min), gated
+# by New York time: owned_content in 04:00-04:14, marketplace in 07:00-07:14. The script also skips a lane that
+# ran in the last CLIPPERS_CLOUD_LANES_MIN_INTERVAL_HOURS (20). Explicit dispatches bypass both.
+# Handover: a real (non-dry) run only runs lanes the owner retired on the Mac (script/clippers-mac-retire.sh);
+# otherwise the lane is held as mac_lane_not_retired. Dry runs render only: no lease, no upload, nothing persisted.
+# Each lane has its own time limit below the job limit, so a hung lane is still recorded (lane_timeout).
+# Missing secrets: recorded as missing_secret:<NAME> for the office; the job exits successfully with a notice.
+# Off unless the repository variable CLIPPERS_CLOUD_LANES_ENABLED = 'true'. Kill switch:
+# CLIPPERS_CLOUD_LANES_KILL_SWITCH = 'true'.
+
+on:
+  workflow_run:
+    workflows: ["Office worker (cloud)"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "owned_content or marketplace"
+        required: true
+        default: owned_content
+        type: choice
+        options: [owned_content, marketplace, sleep]
+      dry_run:
+        description: "Render only (no lease, no YouTube/Metricool, nothing persisted)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    if: >-
+      github.repository == 'robertmanzanillag-jpg/blackops' &&
+      vars.CLIPPERS_CLOUD_LANES_ENABLED == 'true' &&
+      vars.CLIPPERS_CLOUD_LANES_KILL_SWITCH != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    outputs:
+      job: ${{ steps.gate.outputs.job }}
+    steps:
+      - name: Clock gate (New York time unless dispatched)
+        id: gate
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_JOB: ${{ inputs.job }}
+          SLEEP_ENABLED: ${{ vars.CLIPPERS_CLOUD_SLEEP_ENABLED || 'false' }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            if [ "$INPUT_JOB" = "sleep" ] && [ "$SLEEP_ENABLED" != "true" ]; then echo "job=" >> "$GITHUB_OUTPUT"; echo "::notice::Sleep job is off (CLIPPERS_CLOUD_SLEEP_ENABLED)."; exit 0; fi
+            echo "job=$INPUT_JOB" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          hour=$((10#$(TZ=America/New_York date +%H))); minute=$((10#$(TZ=America/New_York date +%M))); dow=$(TZ=America/New_York date +%u)
+          if [ "$hour" -eq 4 ] && [ "$minute" -lt 15 ]; then echo "job=owned_content" >> "$GITHUB_OUTPUT"
+          elif [ "$hour" -eq 7 ] && [ "$minute" -lt 15 ]; then echo "job=marketplace" >> "$GITHUB_OUTPUT"
+          # Weekly sleep render (Sunday 00:00 NY), only behind the flag until its runtime is measured.
+          elif [ "$SLEEP_ENABLED" = "true" ] && [ "$dow" -eq 7 ] && [ "$hour" -eq 0 ] && [ "$minute" -lt 15 ]; then echo "job=sleep" >> "$GITHUB_OUTPUT"
+          else echo "job=" >> "$GITHUB_OUTPUT"; echo "::notice::Outside the lane windows ($hour:$minute New York); skipping."; fi
+
+  lane:
+    needs: gate
+    if: needs.gate.outputs.job != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 340
+    # owned_content and sleep share the content workspace (Drive + Postgres ledgers): one group, they queue.
+    # marketplace has its own group.
+    concurrency:
+      group: clippers-cloud-lanes-${{ needs.gate.outputs.job == 'marketplace' && 'marketplace' || 'owned' }}
+      cancel-in-progress: false
+    steps:
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ vars.OFFICE_SOURCE_REF || 'main' }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies and render tools
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg imagemagick >/dev/null
+
+      - name: Run lane
+        env:
+          NODE_ENV: production
+          OFFICE_DATABASE_URL: ${{ secrets.OFFICE_DATABASE_URL }}
+          OFFICE_OWNER_ID: ${{ secrets.OFFICE_OWNER_ID }}
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          CLIPPERS_DRIVE_WORKSPACE_FOLDER_ID: ${{ secrets.CLIPPERS_DRIVE_WORKSPACE_FOLDER_ID }}
+          CLIPPERS_YOUTUBE_ES_CHANNEL_ID: ${{ secrets.CLIPPERS_YOUTUBE_ES_CHANNEL_ID }}
+          CLIPPERS_YOUTUBE_ES_CLIENT_ID: ${{ secrets.CLIPPERS_YOUTUBE_ES_CLIENT_ID }}
+          CLIPPERS_YOUTUBE_ES_CLIENT_SECRET: ${{ secrets.CLIPPERS_YOUTUBE_ES_CLIENT_SECRET }}
+          CLIPPERS_YOUTUBE_ES_REFRESH_TOKEN: ${{ secrets.CLIPPERS_YOUTUBE_ES_REFRESH_TOKEN }}
+          CLIPPERS_YOUTUBE_EN_CHANNEL_ID: ${{ secrets.CLIPPERS_YOUTUBE_EN_CHANNEL_ID }}
+          CLIPPERS_YOUTUBE_EN_CLIENT_ID: ${{ secrets.CLIPPERS_YOUTUBE_EN_CLIENT_ID }}
+          CLIPPERS_YOUTUBE_EN_CLIENT_SECRET: ${{ secrets.CLIPPERS_YOUTUBE_EN_CLIENT_SECRET }}
+          CLIPPERS_YOUTUBE_EN_REFRESH_TOKEN: ${{ secrets.CLIPPERS_YOUTUBE_EN_REFRESH_TOKEN }}
+          CLIPPERS_YOUTUBE_SLEEP_CHANNEL_ID: ${{ secrets.CLIPPERS_YOUTUBE_SLEEP_CHANNEL_ID }}
+          CLIPPERS_YOUTUBE_SLEEP_CLIENT_ID: ${{ secrets.CLIPPERS_YOUTUBE_SLEEP_CLIENT_ID }}
+          CLIPPERS_YOUTUBE_SLEEP_CLIENT_SECRET: ${{ secrets.CLIPPERS_YOUTUBE_SLEEP_CLIENT_SECRET }}
+          CLIPPERS_YOUTUBE_SLEEP_REFRESH_TOKEN: ${{ secrets.CLIPPERS_YOUTUBE_SLEEP_REFRESH_TOKEN }}
+          # Public YouTube stays off until the owner sets these variables (unaudited API projects upload private only).
+          # Cloud YouTube uploads stay off until the owner sets this variable to 'true'.
+          CLIPPERS_YOUTUBE_CLOUD_UPLOAD_ENABLED: ${{ vars.CLIPPERS_YOUTUBE_CLOUD_UPLOAD_ENABLED || 'false' }}
+          CLIPPERS_YOUTUBE_PUBLISH_AUTHORIZED: ${{ vars.CLIPPERS_YOUTUBE_PUBLISH_AUTHORIZED || 'false' }}
+          CLIPPERS_YOUTUBE_API_PROJECT_AUDIT_VERIFIED: ${{ vars.CLIPPERS_YOUTUBE_API_PROJECT_AUDIT_VERIFIED || 'false' }}
+          METRICOOL_USER_TOKEN: ${{ secrets.METRICOOL_USER_TOKEN }}
+          METRICOOL_USER_ID: ${{ secrets.METRICOOL_USER_ID }}
+          CLIPPERS_METRICOOL_BLOG_ID: ${{ vars.CLIPPERS_METRICOOL_BLOG_ID }}
+          CLIPPERS_TIKTOK_ACCOUNT: ${{ vars.CLIPPERS_TIKTOK_ACCOUNT }}
+          CLIPPERS_METRICOOL_AUTOPUBLISH_AUTHORIZED: ${{ vars.CLIPPERS_MARKETPLACE_CLOUD_PUBLISH_ENABLED || 'false' }}
+          CLIPPERS_PUBLIC_MEDIA_UPLOAD_AUTHORIZED: ${{ vars.CLIPPERS_MARKETPLACE_CLOUD_PUBLISH_ENABLED || 'false' }}
+          CLIPPERS_MARKETPLACE_SNAPSHOT_MAX_AGE_HOURS: ${{ vars.CLIPPERS_MARKETPLACE_SNAPSHOT_MAX_AGE_HOURS }}
+          CLIPPERS_CLOUD_LANES_MIN_INTERVAL_HOURS: ${{ vars.CLIPPERS_CLOUD_LANES_MIN_INTERVAL_HOURS }}
+          CLIPPERS_CLOUD_MEDIA_HYDRATE_DAYS: ${{ vars.CLIPPERS_CLOUD_MEDIA_HYDRATE_DAYS }}
+          JOB: ${{ needs.gate.outputs.job }}
+          EVENT: ${{ github.event_name }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          args=(--job "$JOB")
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$DRY_RUN" = "true" ]; then args+=(--dry-run); fi
+          if [ "$EVENT" != "workflow_dispatch" ]; then args+=(--respect-interval); fi
+          node --import tsx script/clippers-cloud-lanes.mjs "${args[@]}"

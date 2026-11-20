@@ -1,76 +1,30 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState, type HTMLAttributes, type ReactNode, type RefObject } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import { runProbe, type AgentLiveState, type AgentLiveStatus } from "@/lib/agent-live-status";
-import {
-  AgentsBuilding,
-  councilDeskStatus,
-  useAgentLiveStatuses,
-  useCouncil,
-  type BuildingAgent,
-  type BuildingTeamAgent,
-} from "@/components/agents-building/agents-building";
-import { SPECIALIST_PREFIX, isSpecialistId, specialistTopicLabel, personalityFor, type AgentCareer, type CompanyOrder, type CompanyState, type LeaderboardRow, type Personality, type Trainee } from "@shared/agent-company";
+import { AgentsBuilding, type BuildingTeamAgent } from "@/components/agents-building/agents-building";
+import { SPECIALIST_PREFIX, personalityFor, type AgentCareer, type CompanyOrder } from "@shared/agent-company";
 import { OFFICE_KONG_CITY_TASKS, scoreOfficeKongSnapshot } from "@shared/office-kong-supervisor";
-import type { OfficeKongAuditResult } from "../../../../server/office-kong";
-import type { OfficeKongCollaboration } from "../../../../server/office-kong-collaboration";
-import { CITY_NEWS_AGENTS } from "@shared/agent-live-status";
-import { BLACKROOM_DEPARTMENT_ORDER, BLACKROOM_TEAM } from "@shared/blackroom-team";
-import { INTEGRATION_LABEL, effectiveIntegrations, integrationFor, type AgentIntegration } from "@shared/agent-integrations";
-import { buildOfficeKongCentralSignals, OFFICE_KONG_CENTRAL_SEATS, officeCityEvidenceNotice, type OfficeKongCentralSignal } from "@/lib/office-kong-central-agents";
-import { buildKongOfficeWing, createKongRingAssignment, kongCentralOnDuty, type KongRingAssignment } from "@/lib/kong-office-wing";
+import { BLACKROOM_TEAM } from "@shared/blackroom-team";
+import { INTEGRATION_LABEL, integrationFor } from "@shared/agent-integrations";
+import { officeCityEvidenceNotice } from "@/lib/office-kong-central-agents";
 import { activeSummary, countActive, isActiveStatus, isOnDuty } from "@shared/office-on-duty";
-import type { WhatsAppOfficeView } from "@shared/whatsapp-office-agent";
-import { kongOfficeSnapshotKey, readOwnerKongSnapshot } from "@/lib/whatsapp-office-query";
 import { createOfficeScene, type SceneData, type SceneDepartment } from "./office-scene";
-import { applyRoleWorkActivity, countRoleWorkCompleted, parseRoleWorkActivity } from "@shared/office-role-work-activity";
-import { parseSelfHealView, selfHealLine, selfHealTotals } from "@shared/office-self-heal-view";
-import { FACTORY_AGENTS, FACTORY_DEPARTMENT, factoryAgentStatus, type FactoryAgentView } from "@shared/factory-office-agents";
-import { buildOfficeCityRoomsFromSnapshot, officeCitySnapshotExpiresAt, parseOfficeCityDirectory, type OfficeCityAgent } from "@/lib/office-city-agents";
+import { countRoleWorkCompleted } from "@shared/office-role-work-activity";
+import { selfHealTotals } from "@shared/office-self-heal-view";
+import { creditPacerLine } from "@shared/credit-pacer-view";
+import { FACTORY_AGENTS } from "@shared/factory-office-agents";
 import { useWorkspaceRole } from "@/lib/workspace-role";
+import { KONG_ORDER_MAX_TEXT, isKongOrderAgent } from "@shared/agent-chat-routing";
+import { officeDeepLinkStep } from "@/lib/office-central-panel";
 import { PartnerInvitePanel } from "@/components/workspace/partner-invite-panel";
 import { BlackRoomAcademyPanel } from "./blackroom-academy-panel";
 import { BlackRoomCeoChatPanel } from "@/components/blackroom-ceo-chat/blackroom-ceo-chat-panel";
+import { COUNCIL_AGENTS, useOfficeRoster, type OfficeDepartment, type PanelAgent, type WorldAgent } from "./use-office-roster";
+import { useDraggablePanel } from "./use-draggable-panel";
 
-export type WorldAgent = BuildingAgent & { activity?: string; href?: string };
-
-// Real agents that live in the backend but not in the classic office list.
-const EXTRA_AGENTS: Array<{ id: string; name: string; role: string; description: string; color: string; href?: string }> = [
-  ...BLACKROOM_TEAM.map(({ id, name, role, description, color }) => ({ id, name, role, description, color })),
-  { id: "blackroom-videos", name: "Videos Black Room", role: "Sube los videos de Black Room", description: "Edita y programa los videos de Black Room con su dispositivo de publicacion.", color: "#e879f9", href: "/clippers" },
-  { id: "kong-videos", name: "Videos Kong", role: "Edita los videos de Kong", description: "Edita los videos de Kong y los guarda en Drive (Videos de Kong). Recibe las fichas verificadas de Venues y Promoters en su bandeja.", color: "#a3e635", href: "/promo-video" },
-  { id: "kong-metrics", name: "Metricas KONG", role: "Resultados por publicacion", description: "Agente separado: mide cada publicacion confirmada de KONG (vistas, alcance, interacciones) con los datos de Metricool, enlazados por UUID.", color: "#bef264" },
-  { id: "news", name: "Noticias", role: "Jefe de noticias locales", description: "Coordina las mesas de cada ciudad y el comite de revision antes de publicar.", color: "#38bdf8", href: "/news" },
-  ...CITY_NEWS_AGENTS.map((agent) => ({
-    id: agent.id,
-    name: agent.name,
-    role: `Mesa de noticias de ${agent.city}`,
-    description: `Cubre ${agent.city}: noticias activas, cola de posts y metas diarias por cuenta de esta ciudad.`,
-    color: agent.lane === "miami-news" ? "#fb923c" : "#60a5fa",
-    href: "/news",
-  })),
-];
-
-const COUNCIL_AGENTS: Record<string, { name: string; role: string; description: string; color: string }> = {
-  "skills-scout": { name: "Skills Scout", role: "Novedades y skills", description: "Revisa una vez al dia los releases publicos y propone mejoras a las skills (gratis).", color: "#c084fc" },
-  "agent-factory": { name: "Fabrica de agentes", role: "El CEO contrata", description: "Detecta agentes trabados y propone ayudantes nuevos; los nuevos pasan por la academia.", color: "#fbbf24" },
-  mechanic: { name: "Mecanico", role: "Repara agentes", description: "Cuando un agente se queda sin bateria, abre la reparacion con el brief listo para un PR.", color: "#f97316" },
-};
-
-const DEPARTMENTS: Array<{ id: string; name: string; color: string; agentIds: string[] }> = [
-  { id: "consejo", name: "Consejo", color: "#c084fc", agentIds: ["skills-scout", "agent-factory", "mechanic"] },
-  { id: "direccion", name: "Direccion", color: "#fbbf24", agentIds: ["ceo", "assistant", "control"] },
-  { id: "negocios", name: "Negocios", color: "#34d399", agentIds: ["revenue", "dropshipping", "portfolio"] },
-  { id: "blackroom", name: "Black Room", color: "#e879f9", agentIds: [...BLACKROOM_DEPARTMENT_ORDER] },
-  { id: "kong", name: "Kong", color: "#a3e635", agentIds: ["kong-videos", "kong-metrics", "kong:KONG AI", "kong:Promoters + Mesas", "kong:Venues", "kong:Kong Legal"] },
-  { id: "medios", name: "Marketing y medios", color: "#f472b6", agentIds: ["marketing-cmo", "clippers"] },
-  { id: "noticias-ciudad", name: "Noticias por ciudad", color: "#fb923c", agentIds: ["news", ...CITY_NEWS_AGENTS.map((agent) => agent.id)] },
-  { id: "ingenieria", name: "Ingenieria y app", color: "#38bdf8", agentIds: ["code", "github", "claude-reviewer", "app-qa"] },
-  // Software Factory engineers: main-company careers, presence read from factory stage leases.
-  { id: "fabrica", name: FACTORY_DEPARTMENT, color: "#0ea5e9", agentIds: FACTORY_AGENTS.map((agent) => agent.id) },
-  { id: "seguridad", name: "Seguridad y legal", color: "#a78bfa", agentIds: ["cybersecurity", "legal"] },
-  { id: "operaciones", name: "Operaciones", color: "#2dd4bf", agentIds: ["automations"] },
-];
+export type { WorldAgent } from "./use-office-roster";
 
 const SCREEN_KIND: Record<string, SceneDepartment["agents"][number]["screen"]> = {
   ...Object.fromEntries(BLACKROOM_TEAM.map((agent) => [agent.id, agent.screen])),
@@ -82,9 +36,8 @@ const SCREEN_KIND: Record<string, SceneDepartment["agents"][number]["screen"]> =
 const CITY_COUNTRY_COLORS: Record<string, string> = {
   AR: "#fbbf24", US: "#38bdf8", GB: "#c084fc", ES: "#f472b6", FR: "#2dd4bf", AE: "#a3e635",
 };
-const cityRefreshInterval = ({ state }: { state: { error: Error | null } }) => /^(401|403):/.test(state.error?.message ?? "") ? false as const : 60_000;
 
-const SOURCE_NAME: Record<string, string> = {
+export const SOURCE_NAME: Record<string, string> = {
   ...Object.fromEntries(BLACKROOM_TEAM.map((agent) => [agent.id, agent.sourceName])),
   assistant: "Google Calendar", ceo: "Telegram + IA", control: "Salud de apps", revenue: "Stripe", dropshipping: "Shopify (pre-cuentas)",
   portfolio: "Mercados", "marketing-cmo": "Clientes de marketing", clippers: "Worker de clips", radio: "Calendario de radio",
@@ -107,9 +60,7 @@ const STATE_BAR: Record<AgentLiveState, string> = {
 const statusText = (status: AgentLiveStatus) => isOnDuty(status) ? "text-teal-300" : STATE_TEXT[status.state];
 const statusBar = (status: AgentLiveStatus) => isOnDuty(status) ? "bg-teal-400 w-3/4" : STATE_BAR[status.state];
 
-type CompanyView = { factoryAgents?: FactoryAgentView[]; kongCompany?: CompanyState; kongLeaderboard?: LeaderboardRow[]; kongPersonalities?: Record<string, Personality>; kongCollaboration?: OfficeKongCollaboration; company?: CompanyState; leaderboard?: LeaderboardRow[]; personalities?: Record<string, Personality>; integrations?: Record<string, AgentIntegration> };
 export type WorldContact = { id: string; name: string; role: string; department: string; status: AgentLiveStatus; description: string; href?: string; color: string };
-type PanelAgent = { id: string; name: string; role: string; description: string; href?: string; status: AgentLiveStatus; kong?: boolean; color: string; cityAgent?: OfficeCityAgent; kongEvidence?: OfficeKongCentralSignal; whatsappEvidence?: WhatsAppOfficeView };
 
 export function AgentsOfficeWorld({
   agents,
@@ -121,6 +72,7 @@ export function AgentsOfficeWorld({
   onOpenKongOffice,
   onOpenContact,
   kongWingRequest = 0,
+  initialAgentId,
 }: {
   agents: WorldAgent[];
   kongTeam: BuildingTeamAgent[];
@@ -130,25 +82,21 @@ export function AgentsOfficeWorld({
   onSelectKongAgent: (name: string) => void;
   onOpenKongOffice: () => void;
   kongWingRequest?: number;
+  // Deep link from the central panel (/agents-office?agent=<id>): opens that agent's card and chat.
+  initialAgentId?: string;
   // Opens the same local chat for agents that are not in the classic list (cities, new agents, trainees).
   onOpenContact?: (contact: WorldContact) => void;
 }) {
-  const pageAgentIds = useMemo(() => agents.map((agent) => agent.id), [agents]);
-  const probedIds = useMemo(() => [...pageAgentIds, ...EXTRA_AGENTS.map((agent) => agent.id)], [pageAgentIds]);
-  const liveStatuses = useAgentLiveStatuses(probedIds, legal);
-  const council = useCouncil();
-  const companyView = (council.view || {}) as unknown as CompanyView;
   const [officeWing, setOfficeWing] = useState<"main" | "kong">("main");
+  const roster = useOfficeRoster({ agents, kongTeam, legal, kongEnabled: officeWing === "kong" });
+  const { pageAgentIds, council, companyView, integrations, panelAgents, roleWorkToday, selfHeal, clock, cityDirectory, citySnapshot, cityEvidence, cityRooms, centralSignals, centralKongTeam, kongRingAssignment, canClassifyKongCities } = roster;
   const company = officeWing === "kong" ? companyView.kongCompany : companyView.company;
   const careers: Record<string, AgentCareer> = company?.careers || {};
   const leaderboardRows = (officeWing === "kong" ? companyView.kongLeaderboard : companyView.leaderboard) || [];
   const personalities = (officeWing === "kong" ? companyView.kongPersonalities : companyView.personalities) || {};
-  const integrations = companyView.integrations || effectiveIntegrations();
   const deputyId = leaderboardRows[0]?.points ? leaderboardRows[0].agentId : null;
   const queryClient = useQueryClient();
-  const currentOwner = () => queryClient.getQueryData<{ user?: { id: string } }>(["auth-me"])?.user?.id;
-  const snapshotAuth = useQuery<{ user?: { id: string } }>({ queryKey: ["auth-me"], enabled: false });
-  const snapshotOwner = snapshotAuth.data?.user?.id;
+  const [, navigate] = useLocation();
   const hostRef = useRef<HTMLDivElement | null>(null);
   const labelsRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<ReturnType<typeof createOfficeScene> | null>(null);
@@ -169,39 +117,8 @@ export function AgentsOfficeWorld({
 
   const [mainPanelMinimized, setMainPanelMinimized] = useState(false);
   const [cityDetailsOpen, setCityDetailsOpen] = useState(false);
-  const [clock, setClock] = useState(() => Date.now());
-  const cityDirectory = useQuery<unknown>({ queryKey: ["/api/agents-office/cities"], enabled: officeWing === "kong", staleTime: 60_000, refetchInterval: cityRefreshInterval, retry: (count, error) => count < 2 && !/^(401|403):/.test(error.message), retryDelay: attempt => Math.min(1_000 * 2 ** attempt, 2_000) });
-  const citySnapshot = useQuery<OfficeKongAuditResult & { collaboration?: OfficeKongCollaboration }>({ queryKey: kongOfficeSnapshotKey(snapshotOwner), queryFn: ({ signal }) => readOwnerKongSnapshot(snapshotOwner, currentOwner, signal), enabled: officeWing === "kong" && Boolean(snapshotOwner), staleTime: 45_000, refetchInterval: cityRefreshInterval, retry: (count, error) => count < 2 && !/^(401|403):/.test(error.message), retryDelay: attempt => Math.min(1_000 * 2 ** attempt, 2_000) });
-  useEffect(() => { const timer = window.setInterval(() => setClock(Date.now()), 15_000); return () => window.clearInterval(timer); }, []);
-  const cityEvidence = cityDirectory.isError || citySnapshot.isError ? undefined : citySnapshot.data?.evidence;
-  const evidenceExpiresAt = useMemo(() => officeCitySnapshotExpiresAt(cityEvidence, clock), [cityEvidence, clock]);
-  useEffect(() => {
-    if (evidenceExpiresAt === undefined || !Number.isFinite(evidenceExpiresAt)) return;
-    const delay = evidenceExpiresAt - Date.now();
-    if (delay < 0) { setClock(Date.now()); return; }
-    if (delay > 5 * 60_000 + 30_000) return;
-    const timer = window.setTimeout(() => setClock(Date.now()), delay + 1);
-    return () => window.clearTimeout(timer);
-  }, [evidenceExpiresAt]);
-  const directory = useMemo(() => clock - cityDirectory.dataUpdatedAt <= 5 * 60_000 ? parseOfficeCityDirectory(cityDirectory.data) : [], [clock, cityDirectory.data, cityDirectory.dataUpdatedAt]);
-  const cityRooms = useMemo(() => buildOfficeCityRoomsFromSnapshot(directory, cityEvidence, clock), [directory, cityEvidence, clock]);
-  const centralSignals = useMemo(
-    () => buildOfficeKongCentralSignals(citySnapshot.isError ? undefined : citySnapshot.data?.evidence.agents,
-      citySnapshot.isError ? undefined : citySnapshot.data?.evidence.generatedAt, clock),
-    [citySnapshot.isError, citySnapshot.data?.evidence.agents, citySnapshot.data?.evidence.generatedAt, clock],
-  );
-  const centralSignalById = new Map(centralSignals.map(signal => [signal.id, signal]));
-  const centralKongTeam: BuildingTeamAgent[] = OFFICE_KONG_CENTRAL_SEATS.slice(1).map(seat => ({
-    name: seat.nativeName,
-    job: kongTeam.find(member => member.name.toLowerCase() === seat.nativeName.toLowerCase())?.job || seat.job,
-  }));
-  const [kongRingAssignment, setKongRingAssignment] = useState<KongRingAssignment>();
-  const canClassifyKongCities = !citySnapshot.isError && !cityDirectory.isError && cityRooms.some(room => room.upcomingEvents !== null || room.agents.some(agent => agent.hasDurableEvidence));
-  useEffect(() => {
-    if (!kongRingAssignment && canClassifyKongCities) setKongRingAssignment(createKongRingAssignment(cityRooms, clock));
-  }, [kongRingAssignment, canClassifyKongCities, cityRooms, clock]);
   const refreshKongRings = () => {
-    setKongRingAssignment(createKongRingAssignment(cityRooms, clock));
+    roster.refreshKongRings();
     setFocusedDepartment(null); setPanelAgentId(null); sceneRef.current?.focusDepartment(null);
   };
   const selectedCity = cityRooms.find(room => room.id === focusedDepartment);
@@ -224,117 +141,44 @@ export function AgentsOfficeWorld({
   // Bumped after every close attempt so a failed pick can be selected again.
   const [evidenceResetKey, setEvidenceResetKey] = useState(0);
 
-  // Approved council lessons change how an agent is reported (same rule as the building).
-  const statuses: Record<string, AgentLiveStatus> = { ...liveStatuses };
-  for (const [agentId, override] of Object.entries(council.view?.overrides || {})) {
-    const current = statuses[agentId];
-    if (current && (current.state === "working" || current.state === "available")) statuses[agentId] = { ...current, state: "needs-setup", label: override.label, detail: override.detail };
-  }
-  statuses["skills-scout"] = councilDeskStatus(council.view, "scout", council.error);
-  statuses["agent-factory"] = councilDeskStatus(council.view, "factory", council.error);
-  statuses.mechanic = !council.view
-    ? { state: council.error ? "offline" : "checking", label: council.error ? "Sin conexion" : "Verificando..." }
-    : council.view.lastCycleError
-      ? { state: "error", label: "La ultima ronda fallo", detail: council.view.lastCycleError }
-      : council.view.cycles === 0
-        ? { state: "checking", label: "Primera ronda pendiente" }
-        : council.view.enabled === false
-          ? { state: "offline", label: "Consejo apagado" }
-          : !council.view.lastCycleAt || Date.now() - Date.parse(council.view.lastCycleAt) > 45 * 60_000
-            ? { state: "offline", label: "Sin rondas recientes", detail: "El servidor no ha corrido el consejo en los ultimos 45 minutos." }
-            : { state: "available", label: `${(council.view.proposals || []).filter((p) => p.kind === "repair" && p.status === "submitted").length} propuestas de reparación registradas`, detail:"No demuestra una reparación en ejecución." };
-  for (const seat of OFFICE_KONG_CENTRAL_SEATS) {
-    const signal = centralSignalById.get(seat.id);
-    statuses[seat.id] = !signal || signal.signal === "unverified"
-      ? { state: "offline", label: signal?.label || "Actividad sin verificar", detail: signal?.detail || "No hay evidencia autenticada de este puesto." }
-      : signal.signal === "current"
-        ? { state: "available", label: "Actividad reportada; ejecución sin verificar", detail: signal.detail, activity: [signal.detail] }
-        : signal.signal === "alert"
-          ? { state: "needs-setup", label: signal.label, detail: signal.detail }
-          : (signal.signal === "last-result" && kongCentralOnDuty(signal.agent, clock)) || { state: "offline", label: signal.label, detail: signal.detail };
-  }
-  // Keep the authenticated KONG Native evidence, but an external publisher is
-  // never presented as a worker executing inside this office.
-  for (const [id, integration] of Object.entries(integrations)) {
-    if (integration.mode !== "externa" || !statuses[id]) continue;
-    statuses[id] = { state: "offline", label: integration.owner === "externo:codex" ? "Externo · lo publica Codex" : "Externo", detail: integration.reason, activity: ["Publicador externo: un solo publicador", ...(statuses[id].activity || [])].slice(0, 4), problems: statuses[id].problems };
-  }
-  // Role work the office executor (cloud or PC) recorded today in the shared council state.
-  const roleWorkToday = parseRoleWorkActivity((council.view as unknown as { roleWorkToday?: unknown } | null)?.roleWorkToday);
-  for (const activity of roleWorkToday) {
-    const next = applyRoleWorkActivity(statuses[activity.agentId], activity, clock);
-    if (next) statuses[activity.agentId] = next;
-  }
-  // Office self-heal (detect -> fix -> verify): counts only. Merging a fix stays the owner's decision.
-  const selfHeal = parseSelfHealView((council.view as unknown as { selfHeal?: unknown } | null)?.selfHeal);
-  for (const summary of selfHeal.agents) {
-    const current = statuses[summary.agentId];
-    if (!current || summary.detected + summary.repairing + summary.verified + summary.needsOwner === 0) continue;
-    statuses[summary.agentId] = { ...current, activity: [selfHealLine(summary), ...(current.activity || [])].slice(0, 4),
-      ...(summary.needsOwner ? { problems: [`${summary.needsOwner} ${summary.needsOwner === 1 ? "problema necesita" : "problemas necesitan"} al dueño`, ...(current.problems || [])].slice(0, 4) } : {}) };
-  }
-
-  const panelAgents = new Map<string, PanelAgent>();
-  for (const agent of agents) panelAgents.set(agent.id, { id: agent.id, name: agent.name, role: agent.role, description: agent.activity || agent.role, href: agent.href, status: statuses[agent.id] ?? { state: "checking", label: "Verificando..." }, color: colorFromGradient(agent.color) });
-  for (const agent of EXTRA_AGENTS) panelAgents.set(agent.id, { ...agent, status: statuses[agent.id] ?? { state: "checking", label: "Verificando..." },
-    ...(agent.id === "kong-videos" ? { kongEvidence: centralSignalById.get("kong-videos") } : {}) });
-  for (const [id, agent] of Object.entries(COUNCIL_AGENTS)) panelAgents.set(id, { id, ...agent, status: statuses[id] });
-  // Factory engineers are working only while a factory stage lease is live; otherwise "last worked at".
-  for (const agent of FACTORY_AGENTS) {
-    const view = companyView.factoryAgents?.find((item) => item.agentId === agent.id);
-    panelAgents.set(agent.id, { id: agent.id, name: agent.name, role: agent.role, color: "#0ea5e9",
-      description: `${agent.role}. Trabaja en la fabrica de software (PR borrador, alcance de escritura, limite diario y creditos sin cambios). Su vida sigue las mismas reglas que el resto: +6 por etapa verificada, -10 por fallo atribuible.`,
-      status: factoryAgentStatus(view, council.error ? "error" : council.view ? "ready" : "loading", clock) });
-  }
-  for (const member of centralKongTeam) {
-    const seat = OFFICE_KONG_CENTRAL_SEATS.find(item => item.nativeName === member.name);
-    if (!seat) continue;
-    panelAgents.set(seat.id, { id: seat.id, name: seat.name, role: member.job,
-      description: "Puesto central de KONG. Las señales proceden de la lectura autenticada de KONG Native.",
-      status: statuses[seat.id], kong: true, color: "#a3e635", kongEvidence: centralSignalById.get(seat.id) });
-  }
-
-  const trainees: Trainee[] = (company?.trainees || []).filter((trainee) => !trainee.graduatedAt && !trainee.evaluationClosedAt);
-  // Specialists the academy created for recurring work (approved by Robert in the Trust Center).
-  const specialists = Object.values(careers).filter((career) => isSpecialistId(career.agentId));
-  for (const career of specialists) {
-    const topic = specialistTopicLabel(career.agentId);
-    panelAgents.set(career.agentId, {
-      id: career.agentId,
-      name: `Especialista en ${topic}`,
-      role: "Creado por la academia",
-      description: `Agente nuevo formado con las ordenes de "${topic}" que nadie podia tomar. Recibe esas ordenes; sus puntos solo cuentan con evidencia.`,
-      status: { state: "needs-setup", label: `Listo: espera ordenes de ${topic}`, activity: (career.skills || []).slice(0, 4).map((skill) => skill.title) },
-      color: "#93c5fd",
+  // Phones and tablets: opening a room or an overlay folds the controls so the two panels never overlap.
+  // They unfold again when the room or overlay closes, unless the owner folded them by hand.
+  const autoMinimized = useRef(false);
+  useEffect(() => {
+    const open = Boolean(focusedDepartment) || overlay !== "none";
+    if (open && typeof window !== "undefined" && window.innerWidth < 1024) {
+      setMainPanelMinimized(current => { if (!current) autoMinimized.current = true; return true; });
+    } else if (!open && autoMinimized.current) {
+      autoMinimized.current = false;
+      setMainPanelMinimized(false);
+    }
+  }, [focusedDepartment, overlay]);
+  // Deep link: wait until the agent's room exists (KONG rooms need the owner-only snapshot), then focus it once.
+  // The wing switches to KONG at most once, and the link gives up once the council and the city
+  // directory/snapshot have settled (loaded, failed or disabled) or the user left that wing.
+  const deepLinkDone = useRef(false);
+  const deepLinkWingSwitched = useRef(false);
+  const querySettled = (query: { isFetched: boolean; isError: boolean; fetchStatus: string }) => query.isFetched || query.isError || query.fetchStatus === "idle";
+  useEffect(() => {
+    if (!initialAgentId || deepLinkDone.current) return;
+    const inMain = roster.main.departments.find(department => department.agentIds.includes(initialAgentId));
+    const inKong = roster.kong.departments.find(department => department.agentIds.includes(initialAgentId));
+    const councilSettled = Boolean(council.view || council.error);
+    const step = officeDeepLinkStep({
+      agentId: initialAgentId, mainRoomId: inMain?.id, kongRoomId: inKong?.id, wing: officeWing, wingSwitched: deepLinkWingSwitched.current,
+      settled: councilSettled && (inMain ? true : querySettled(cityDirectory) && querySettled(citySnapshot)),
     });
-  }
-  const academyIds = [...trainees.map((trainee) => `trainee:${trainee.id}`), ...specialists.map((career) => career.agentId)];
-  const mainDepartments = [
-    ...DEPARTMENTS,
-    ...(academyIds.length ? [{ id: "academia", name: "Academia", color: "#60a5fa", agentIds: academyIds }] : []),
-  ];
-  const kongWing = buildKongOfficeWing(citySnapshot.data?.evidence, cityRooms, statuses, clock, kongRingAssignment, !citySnapshot.isError);
-  const departments = officeWing === "main" ? mainDepartments : [
-    ...kongWing.departments,
-    ...(academyIds.length ? [{ id: "kong-academia", name: "Academia KONG", color: "#60a5fa", agentIds: academyIds, officeRing: 1 as const }] : []),
-  ];
-  for (const agent of kongWing.agents) panelAgents.set(agent.id, { ...panelAgents.get(agent.id), ...agent });
-  const kongCollaboration = citySnapshot.isError || !cityEvidence || !scoreOfficeKongSnapshot(cityEvidence, clock).verified ? undefined : citySnapshot.data?.collaboration;
-  // City jobs never inherit council careers, lessons or optimistic live probes.
-  for (const room of cityRooms) for (const agent of room.agents) panelAgents.set(agent.id, {
-    id: agent.id, name: agent.name, role: agent.role, description: `${agent.role} de ${room.city.name} · ${room.city.countryCode} · ${room.city.timeZone} · ${room.city.currency}`,
-    status: agent.status, color: agent.color, cityAgent: agent,
+    if (step.action === "wait") return;
+    if (step.action === "switch-wing") { deepLinkWingSwitched.current = true; setOfficeWing("kong"); return; }
+    deepLinkDone.current = true;
+    if (step.action === "give-up") return;
+    setFocusedDepartment(step.roomId); sceneRef.current?.focusDepartment(step.roomId);
+    setPanelAgentId(initialAgentId); setCityDetailsOpen(true);
   });
-  for (const trainee of trainees) {
-    panelAgents.set(`trainee:${trainee.id}`, {
-      id: `trainee:${trainee.id}`,
-      name: trainee.nickname,
-      role: `En formacion: ${trainee.role}`,
-      description: trainee.awaitingEvidence ? "Lectura terminada; faltan pruebas verificables. Esto no cambia su puesto ni acredita una mejora." : `Primero estudia su propio puesto (por que fallo, sus ordenes y lecciones), despues los documentos y la base de datos. Lleva ${trainee.modulesDone.length} ${trainee.modulesDone.length === 1 ? "modulo" : "modulos"}, ${(trainee.learned || []).length} sobre su puesto.`,
-      status: { state: "checking", label: trainee.awaitingEvidence ? "Pendiente de pruebas reales" : `Estudiando · ${trainee.modulesDone.length} ${trainee.modulesDone.length === 1 ? "modulo" : "modulos"}`, activity: trainee.knowledge.slice(0, 4) },
-      color: "#60a5fa",
-    });
-  }
+
+  const trainees = (officeWing === "kong" ? roster.kong : roster.main).trainees;
+  const departments: OfficeDepartment[] = officeWing === "main" ? roster.main.departments : roster.kong.departments;
+  const kongCollaboration = citySnapshot.isError || !cityEvidence || !scoreOfficeKongSnapshot(cityEvidence, clock).verified ? undefined : citySnapshot.data?.collaboration;
 
   const sceneData: SceneData = {
     company: officeWing === "kong" ? "KONG" : "BlackOps",
@@ -459,7 +303,7 @@ export function AgentsOfficeWorld({
 
   if (failed && officeWing === "main") {
     return (
-      <div className="absolute inset-0 overflow-y-auto px-4 pb-10 pt-24">
+      <div className="office-scrollbar absolute inset-0 overflow-y-auto px-4 pb-10 pt-24">
         <p className="mx-auto mb-4 max-w-[900px] rounded-lg border border-amber-300/30 bg-amber-300/10 p-3 text-xs text-amber-100" data-testid="world-fallback">
           Este navegador no pudo abrir la oficina 3D ({failed}). Te muestro el edificio con los mismos datos en vivo.
         </p>
@@ -474,6 +318,7 @@ export function AgentsOfficeWorld({
   const companyActivity = countActive(companyIds.map((id) => panelAgents.get(id)?.status));
   const verifiedTodayCount = officeWing === "main" ? countRoleWorkCompleted(roleWorkToday, companyIds) : 0;
   const selfHealTotal = selfHealTotals(selfHeal, companyIds);
+  const creditBudgetLine = creditPacerLine((council.view as unknown as { creditPacer?: unknown } | null)?.creditPacer);
   const focused = departments.find((department) => department.id === focusedDepartment) || null;
   const focusedAgents = focused ? focused.agentIds.map((id) => panelAgents.get(id)).filter((agent): agent is PanelAgent => Boolean(agent)) : [];
   const panelAgent = (panelAgentId && focusedAgents.find((agent) => agent.id === panelAgentId)) || focusedAgents[0] || null;
@@ -532,14 +377,19 @@ export function AgentsOfficeWorld({
       <div ref={hostRef} className="absolute inset-0" data-testid="world-canvas-host" />
       <div ref={labelsRef} className="pointer-events-none absolute inset-0 overflow-hidden" />
 
-      <section className={cn("absolute bottom-3 left-3 z-10 max-h-[45%] overflow-y-auto rounded-2xl border border-white/10 bg-[#04060b]/95 p-3 text-white shadow-2xl", !mainPanelMinimized && "w-[min(365px,calc(100vw-1.5rem))]")} aria-label="Controles de oficina">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-[11px] font-bold uppercase tracking-[0.2em] text-cyan-100" data-testid="world-company-label">{officeWing === "kong" ? "KONG · la empresa" : "BlackOps · la empresa"}</h2>
-          <button type="button" aria-expanded={!mainPanelMinimized} aria-controls="world-office-panel-content" onClick={() => setMainPanelMinimized(v => !v)} className="rounded-full border border-white/20 px-2 py-1 text-xs" data-testid="world-main-panel-toggle">{mainPanelMinimized ? "Abrir" : "Minimizar"}</button>
+      {/* Top-left by default (never over the bottom "Fábrica de software" button or a bottom-right chat); draggable by its header. */}
+      <FloatingPanel panelId="controls" className={cn(FLOAT_LEFT, "z-10 overflow-y-auto rounded-2xl border border-white/10 bg-[#04060b]/95 p-3 text-white shadow-2xl", !mainPanelMinimized && "w-[min(365px,calc(100vw-1.5rem))]")} aria-label="Controles de oficina" data-testid="world-controls-panel">{handle => <>
+        <div className="flex items-center justify-between gap-3" {...handle} data-testid="world-controls-drag">
+          <h2 className="text-[11px] font-bold uppercase tracking-[0.2em] text-cyan-100" data-testid="world-company-label"><span aria-hidden className="mr-1 text-zinc-500">⠿</span>{officeWing === "kong" ? "KONG · la empresa" : "BlackOps · la empresa"}</h2>
+          {/* Folded controls keep the way back to the whole office. */}
+          {mainPanelMinimized && focusedDepartment && <button type="button" onClick={() => focusRoom(null)} className="ml-auto rounded-full border border-white/20 px-2 py-1 text-xs" data-testid="world-overview">Vista general</button>}
+          <button type="button" aria-expanded={!mainPanelMinimized} aria-controls="world-office-panel-content" onClick={() => { autoMinimized.current = false; setMainPanelMinimized(v => !v); }} className="rounded-full border border-white/20 px-2 py-1 text-xs" data-testid="world-main-panel-toggle">{mainPanelMinimized ? "Abrir" : "Minimizar"}</button>
         </div>
+        {workspace.isOwner && <button type="button" onClick={() => navigate(CENTRAL_PANEL_PATH)} className="mt-2 w-full rounded-full bg-cyan-300 px-3 py-2 text-xs font-black text-slate-950 hover:bg-cyan-200" data-testid="world-open-central-panel">Panel completo · todos los agentes</button>}
         <div id="world-office-panel-content" hidden={mainPanelMinimized}>
           <p className="mt-2 text-lg font-black" data-testid="world-active-count" title="Activos = ejecutando ahora (reserva viva) + al día (último trabajo verificado dentro de su turno, sin fallos).">{companyActivity.active} de {companyActivity.total} activos · <span data-testid="world-working-count">{companyActivity.working} ejecutando ahora</span></p>
           {officeWing === "main" && <p className="mt-1 text-sm font-semibold text-emerald-200" data-testid="world-verified-today-count">{verifiedTodayCount} de {companyIds.length} con trabajo verificado hoy (ejecutor de la oficina)</p>}
+          {officeWing === "main" && creditBudgetLine && <p className="mt-1 text-xs text-amber-100" data-testid="world-credit-pacer">{creditBudgetLine}</p>}
           {officeWing === "main" && selfHeal.enabled && <p className="mt-1 text-xs text-zinc-300" data-testid="world-self-heal-summary">Auto-reparación: {selfHealTotal.detected} detectados · {selfHealTotal.repairing} en reparación · {selfHealTotal.verified} reparados y verificados · {selfHealTotal.needsOwner} necesitan al dueño{selfHealTotal.readyToMerge ? ` · ${selfHealTotal.readyToMerge} PR listos para fusionar (decide el dueño)` : ""}</p>}
           {officeWing === "kong" && <p className="mt-1 text-xs text-zinc-300">Todos los puestos centrales y {cityRooms.length} ciudades en la misma oficina. La oficina observa y coordina; abrirla no activa los ejecutores.</p>}
           {officeWing === "kong" && <div className="mt-2 space-y-1 text-[11px] text-zinc-300" data-testid="world-kong-rings-legend">
@@ -554,7 +404,7 @@ export function AgentsOfficeWorld({
           {company?.events?.[0] && <p className="mt-1 text-xs text-violet-200" data-testid="world-last-event">Último: {company.events[0].text}</p>}
           <div className="mt-3 flex flex-wrap gap-2">
             <button type="button" onClick={() => changeWing(officeWing === "kong" ? "main" : "kong")} className="rounded-full bg-violet-500 px-3 py-2 text-xs font-bold" data-testid="world-kong-wing">{officeWing === "kong" ? "Volver a la oficina principal" : "Ver oficina KONG"}</button>
-            <button type="button" onClick={() => focusRoom(null)} className="rounded-full border border-white/20 px-3 py-2 text-xs" data-testid="world-overview">Vista general</button>
+            {!mainPanelMinimized && <button type="button" onClick={() => focusRoom(null)} className="rounded-full border border-white/20 px-3 py-2 text-xs" data-testid="world-overview">Vista general</button>}
             <button type="button" onClick={() => { const target = canChatBlackRoomCeo && officeWing === "main" ? "blackroom-ceo-chat" : "ceo"; setOverlay(overlay === target ? "none" : target); }} className="rounded-full bg-amber-300 px-3 py-2 text-xs font-bold text-black hover:bg-amber-200" data-testid="world-ceo-channel">💬 {canChatBlackRoomCeo && officeWing === "main" ? "Chat con el CEO" : workspace.isPartner ? "Canal con el CEO Black Room" : "Canal con el CEO"}</button>
             <button type="button" onClick={() => setOverlay(overlay === "ranking" ? "none" : "ranking")} className="rounded-full border border-emerald-200/40 px-3 py-2 text-xs text-emerald-100" data-testid="world-ranking">Tabla de posiciones</button>
             {officeWing === "main" && <button type="button" onClick={() => setOverlay(overlay === "blackroom-academy" ? "none" : "blackroom-academy")} className="rounded-full border border-fuchsia-200/40 px-3 py-2 text-xs text-fuchsia-100" data-testid="world-blackroom-academy">Academia Black Room</button>}
@@ -571,9 +421,9 @@ export function AgentsOfficeWorld({
           {workspace.isPartner && <p className="mt-2 text-[11px] text-fuchsia-200" data-testid="world-partner-note">Vista de socio: ves toda la oficina; solo puedes hablar, dar órdenes y aprobar con el equipo de Black Room. El resto es solo Robert.</p>}
           {message && <p role="status" className="mt-2 text-xs text-violet-100" data-testid="world-message">{message}</p>}
         </div>
-      </section>
-      {officeWing === "kong" && overlay === "kong-talk" && <section aria-label="Colaboración KONG" className="absolute right-3 top-[220px] z-30 sm:top-36 lg:top-24 max-h-[48%] w-[min(420px,calc(100vw-1.5rem))] overflow-y-auto rounded-2xl border border-cyan-200/25 bg-[#07131b]/95 p-4 text-xs text-white" data-testid="world-kong-collaboration-panel">
-        <div className="flex justify-between gap-2"><h2 className="font-bold text-cyan-100">Colaboración KONG</h2><button type="button" onClick={() => setOverlay("none")} aria-label="Cerrar colaboración">Cerrar</button></div>
+      </>}</FloatingPanel>
+      {officeWing === "kong" && overlay === "kong-talk" && <FloatingPanel panelId="kong-talk" aria-label="Colaboración KONG" className={cn(FLOAT_RIGHT, "z-30 max-h-[min(48%,var(--float-avail,100%))] w-[min(420px,calc(100vw-1.5rem))] overflow-y-auto rounded-2xl border border-cyan-200/25 bg-[#07131b]/95 p-4 text-xs text-white")} data-testid="world-kong-collaboration-panel">{handle => <>
+        <div className="flex justify-between gap-2" {...handle}><h2 className="font-bold text-cyan-100"><span aria-hidden className="mr-1 text-zinc-500">⠿</span>Colaboración KONG</h2><button type="button" onClick={() => setOverlay("none")} aria-label="Cerrar colaboración">Cerrar</button></div>
         <p className="mt-2 text-zinc-300">Revisión automática de evidencia entre supervisión y operaciones. Son propuestas pendientes de revisión; no conversaciones de IA ni acciones ya ejecutadas.</p>
         {!kongCollaboration?.exchanges.length && <p className="mt-3">Sin intercambios con evidencia vigente.</p>}
         {kongCollaboration?.exchanges.map(exchange => <article key={exchange.id} className="mt-3 rounded-lg border border-white/10 p-2">
@@ -581,11 +431,11 @@ export function AgentsOfficeWorld({
           {exchange.comments.map(comment => <p key={comment.author} className="mt-1"><b>{comment.author === "supervisor" ? "Supervisor" : "Operaciones"}:</b> {comment.text}</p>)}
           <p className="mt-2 text-amber-100">Para el CEO · {exchange.proposal.text}</p>
         </article>)}
-      </section>}
+      </>}</FloatingPanel>}
 
-      {officeWing === "kong" && overlay === "city-director" && <section aria-label="Director de ciudades de KONG" data-testid="world-city-director-panel" className="absolute top-[220px] right-3 z-30 sm:top-36 lg:top-24 max-h-[45%] w-[min(410px,calc(100vw-1.5rem))] space-y-2 overflow-y-auto rounded-2xl border border-amber-200/25 bg-[#120d04]/95 p-3 text-xs text-white shadow-2xl [color-scheme:dark]">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="text-sm font-bold text-amber-100">Director de ciudades · KONG</h2>
+      {officeWing === "kong" && overlay === "city-director" && <FloatingPanel panelId="city-director" aria-label="Director de ciudades de KONG" data-testid="world-city-director-panel" className={cn(FLOAT_RIGHT, "z-30 max-h-[min(45%,var(--float-avail,100%))] w-[min(410px,calc(100vw-1.5rem))] space-y-2 overflow-y-auto rounded-2xl border border-amber-200/25 bg-[#120d04]/95 p-3 text-xs text-white shadow-2xl [color-scheme:dark]")}>{handle => <>
+        <div className="flex items-center justify-between gap-2" {...handle}>
+          <h2 className="text-sm font-bold text-amber-100"><span aria-hidden className="mr-1 text-zinc-500">⠿</span>Director de ciudades · KONG</h2>
           <button type="button" onClick={() => setOverlay("none")} className="rounded-full border border-white/20 px-2 py-1">Cerrar</button>
         </div>
         <p className="text-slate-300">El coordinador de KONG asigna los turnos de los siete puestos. El director calcula los puntos con el resultado registrado y propone relevos para revisión cuando hay intentos repetidos sin éxito.</p>
@@ -606,11 +456,11 @@ export function AgentsOfficeWorld({
         <h3 className="font-semibold text-amber-100">Relevos propuestos · {reassignmentProposals.length}</h3>
         {reassignmentProposals.map(item => <p key={item.id} className="text-amber-200">{cityRooms.find(room => room.city.id === item.cityId)?.name ?? item.cityId} · {item.category} · {item.proposal.text}</p>)}
         <a href="https://kongnightlife.com/admin/ceo" className="inline-block text-amber-100 underline">Abrir la revisión del CEO en KONG</a>
-      </section>}
+      </>}</FloatingPanel>}
       {overlay === "ranking" && (
-        <section className="absolute top-[220px] right-3 z-30 sm:top-36 lg:top-24 max-h-[45%] w-[min(380px,calc(100vw-1.5rem))] overflow-y-auto rounded-2xl border border-emerald-200/20 bg-[#06100d]/95 p-4 text-white shadow-2xl [color-scheme:dark]" data-testid="world-ranking-panel">
-          <div className="flex items-center justify-between">
-            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-emerald-200">Tabla de posiciones</p>
+        <FloatingPanel panelId="ranking" className={cn(FLOAT_RIGHT, "z-30 max-h-[min(45%,var(--float-avail,100%))] w-[min(380px,calc(100vw-1.5rem))] overflow-y-auto rounded-2xl border border-emerald-200/20 bg-[#06100d]/95 p-4 text-white shadow-2xl [color-scheme:dark]")} data-testid="world-ranking-panel">{handle => <>
+          <div className="flex items-center justify-between" {...handle}>
+            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-emerald-200"><span aria-hidden className="mr-1 text-zinc-500">⠿</span>Tabla de posiciones</p>
             <button type="button" onClick={() => setOverlay("none")} className="text-xs text-zinc-400 hover:text-white">✕</button>
           </div>
           <p className="mt-1 text-[11px] text-zinc-400">Puntos por resultados distintos y verificados. Conectarse, consultar y cerrar órdenes a mano no suma puntos.</p>
@@ -625,17 +475,20 @@ export function AgentsOfficeWorld({
               </li>
             ))}
           </ol>
-        </section>
+          {workspace.isOwner && <button type="button" onClick={() => navigate(CENTRAL_PANEL_PATH)} className="mt-3 w-full rounded-full border border-emerald-200/40 px-3 py-1.5 text-[11px] text-emerald-100 hover:bg-emerald-300/10" data-testid="world-ranking-open-panel">Ver ranking completo en el panel</button>}
+        </>}</FloatingPanel>
       )}
 
-      {overlay === "partners" && workspace.isOwner && <PartnerInvitePanel onClose={() => setOverlay("none")} />}
-      {overlay === "blackroom-academy" && officeWing === "main" && <BlackRoomAcademyPanel company={companyView.company} onClose={() => setOverlay("none")} />}
-      {overlay === "blackroom-ceo-chat" && canChatBlackRoomCeo && <BlackRoomCeoChatPanel onClose={() => setOverlay("none")} onShowTasks={officeWing === "main" ? () => setOverlay("ceo") : undefined} />}
+      {/* These overlays position themselves; the wrappers only add the black scrollbars and keep the
+          Black Room chat (fixed height) above the bottom band with the "Fábrica de software" button. */}
+      {overlay === "partners" && workspace.isOwner && <div className="office-scrollbar contents"><PartnerInvitePanel onClose={() => setOverlay("none")} /></div>}
+      {overlay === "blackroom-academy" && officeWing === "main" && <div className="office-scrollbar contents"><BlackRoomAcademyPanel company={companyView.company} onClose={() => setOverlay("none")} /></div>}
+      {overlay === "blackroom-ceo-chat" && canChatBlackRoomCeo && <div className="office-scrollbar contents [&>section]:max-h-[calc(100%-220px-4.5rem)] sm:[&>section]:max-h-[calc(100%-9rem-4.5rem)] lg:[&>section]:max-h-[calc(100%-6rem-4.5rem)]" data-testid="world-blackroom-ceo-chat-frame"><BlackRoomCeoChatPanel onClose={() => setOverlay("none")} onShowTasks={officeWing === "main" ? () => setOverlay("ceo") : undefined} /></div>}
 
       {overlay === "ceo" && (
-        <section className="absolute top-[220px] right-3 z-30 sm:top-36 lg:top-24 flex max-h-[45%] w-[min(420px,calc(100vw-1.5rem))] flex-col rounded-2xl border border-amber-200/25 bg-[#120d04]/95 p-4 text-white shadow-2xl [color-scheme:dark]" data-testid="world-ceo-panel">
-          <div className="flex items-center justify-between">
-            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-amber-200">{officeWing === "main" && canChatBlackRoomCeo ? "Tareas de la oficina" : "Canal directo con el CEO"}</p>
+        <FloatingPanel panelId="ceo" className={cn(FLOAT_RIGHT, "z-30 flex max-h-[min(45%,var(--float-avail,100%))] w-[min(420px,calc(100vw-1.5rem))] flex-col rounded-2xl border border-amber-200/25 bg-[#120d04]/95 p-4 text-white shadow-2xl [color-scheme:dark]")} data-testid="world-ceo-panel">{handle => <>
+          <div className="flex items-center justify-between" {...handle}>
+            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-amber-200"><span aria-hidden className="mr-1 text-zinc-500">⠿</span>{officeWing === "main" && canChatBlackRoomCeo ? "Tareas de la oficina" : "Canal directo con el CEO"}</p>
             <div className="flex items-center gap-2">
               {officeWing === "main" && canChatBlackRoomCeo && <button type="button" onClick={() => setOverlay("blackroom-ceo-chat")} className="rounded-full bg-amber-300 px-2.5 py-1 text-[11px] font-bold text-black" data-testid="world-ceo-back-to-chat">💬 Volver al chat</button>}
               <button type="button" onClick={() => setOverlay("none")} className="text-xs text-zinc-400 hover:text-white">✕</button>
@@ -690,20 +543,20 @@ export function AgentsOfficeWorld({
               </div>
             ))}
           </div>
-        </section>
+        </>}</FloatingPanel>
       )}
 
       {!focused && overlay === "none" && (
-        <p className={cn("pointer-events-none absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full border border-white/10 bg-black/60 px-4 py-2 text-xs text-zinc-300", officeWing === "kong" && "hidden sm:block")}>
+        <p className="pointer-events-none absolute bottom-4 left-1/2 z-10 hidden -translate-x-1/2 rounded-full border border-white/10 bg-black/60 px-4 py-2 text-xs text-zinc-300 sm:block">
           {failed ? "Vista sin 3D: elige un departamento para ver sus agentes." : officeWing === "kong" ? "Todos los agentes de KONG · toca un departamento para entrar" : "Arrastra para girar · rueda para acercar · toca un departamento para entrar"}
         </p>
       )}
 
       {focused && (
-        <aside className="absolute right-3 top-[220px] z-20 sm:top-36 lg:top-24 flex max-h-[42%] w-[min(390px,calc(100vw-1.5rem))] flex-col overflow-y-auto rounded-2xl border border-white/10 bg-[#070b14]/95 p-3 text-white shadow-2xl sm:max-h-[65%]" data-testid="world-panel">
-          <div className="flex shrink-0 items-start justify-between gap-2">
+        <FloatingPanel as="aside" panelId="department" className={cn(FLOAT_RIGHT, "z-20 flex max-h-[min(42%,var(--float-avail,100%))] w-[min(390px,calc(100vw-1.5rem))] flex-col overflow-y-auto rounded-2xl border border-white/10 bg-[#070b14]/95 p-3 text-white shadow-2xl sm:max-h-[min(65%,var(--float-avail,100%))]")} data-testid="world-panel">{handle => <>
+          <div className="flex shrink-0 items-start justify-between gap-2" {...handle}>
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.24em]" style={{ color: focused.color }}>{focused.name}</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.24em]" style={{ color: focused.color }}><span aria-hidden className="mr-1 text-zinc-500">⠿</span>{focused.name}</p>
               <p className="mt-0.5 text-xs text-zinc-400" data-testid="world-room-active-count">{activeSummary(focusedAgents.map((agent) => agent.status))}</p>
               {focused.id === "blackroom" && canChatBlackRoomCeo && <button type="button" onClick={() => setOverlay("blackroom-ceo-chat")} className="mt-1 rounded-full border border-fuchsia-200/40 px-2 py-0.5 text-[11px] text-fuchsia-100 hover:bg-fuchsia-300/10" data-testid="world-blackroom-dept-chat">Hablar con el CEO Black Room</button>}
             </div>
@@ -912,29 +765,68 @@ export function AgentsOfficeWorld({
             </section>
           )}
           </div>
-        </aside>
+        </>}</FloatingPanel>
       )}
     </div>
   );
 }
 
-// Agents carry Tailwind gradient classes ("from-sky-400 to-cyan-300"); the 3D figures need a hex color.
-const TAILWIND_HEX: Record<string, string> = {
-  sky: "#38bdf8", cyan: "#22d3ee", amber: "#fbbf24", orange: "#fb923c", emerald: "#34d399", lime: "#a3e635", blue: "#60a5fa",
-  zinc: "#a1a1aa", slate: "#94a3b8", violet: "#a78bfa", fuchsia: "#e879f9", rose: "#fb7185", pink: "#f472b6", red: "#f87171",
-  teal: "#2dd4bf", indigo: "#818cf8", purple: "#c084fc", stone: "#a8a29e", green: "#4ade80", yellow: "#facc15",
-};
-function colorFromGradient(gradient: string): string {
-  const match = gradient.match(/from-([a-z]+)-/);
-  return (match && TAILWIND_HEX[match[1]]) || "#94a3b8";
+const CENTRAL_PANEL_PATH = "/agents-office/panel";
+// Floating panels start in the top band, under the toolbar, and their height is capped by
+// --float-avail (set by useDraggablePanel) so they never reach the bottom band holding the
+// "Fábrica de software" button and a bottom-right chat launcher, even when dragged or when their
+// content grows: they scroll instead.
+const FLOAT_LEFT = "absolute left-3 top-[220px] sm:top-36 lg:top-24 max-h-[var(--float-avail,calc(100%-220px-4.5rem))] sm:max-h-[var(--float-avail,calc(100%-9rem-4.5rem))] lg:max-h-[var(--float-avail,calc(100%-6rem-4.5rem))]";
+// Phones and tablets: just under the folded controls pill (top 220 px / 144 px). lg:top-28 keeps the right column
+// clear of the "Trabajo real" toggle (top-16, z-110).
+const FLOAT_RIGHT = "absolute right-3 top-[272px] sm:top-[196px] lg:top-28";
+
+type DragHandleProps = ReturnType<typeof useDraggablePanel>["handleProps"] & { onDoubleClick: () => void };
+function FloatingPanel({ panelId, as = "section", className, children, ...rest }: { panelId: string; as?: "section" | "aside"; className: string; children: (handle: DragHandleProps) => ReactNode } & Omit<HTMLAttributes<HTMLElement>, "children" | "className">) {
+  const drag = useDraggablePanel(panelId);
+  const Tag = as;
+  return (
+    <Tag ref={drag.ref as RefObject<HTMLElement>} style={drag.style} className={cn("office-scrollbar", className)} data-moved={drag.moved ? "true" : undefined} {...rest}>
+      {children({ ...drag.handleProps, title: "Arrastra para mover · doble clic para volver a su lugar", onDoubleClick: drag.reset })}
+    </Tag>
+  );
 }
-function OfficeAgentStatusChat({ agent }: { agent: PanelAgent }) {
+
+// KONG central desks and city desks take Robert's orders through the agent chat (server → KONG office-orders).
+export function OfficeAgentStatusChat({ agent }: { agent: PanelAgent }) {
+  const workspace = useWorkspaceRole();
   const [message, setMessage] = useState("");
   const [reply, setReply] = useState<{ question: string; answer: string }>();
+  const [sending, setSending] = useState(false);
+  const threadRef = useRef<string | undefined>(undefined);
+  const pendingRef = useRef<{ text: string; requestId: string } | undefined>(undefined);
+  // Anything the status rules below do not cover goes to the agent chat, which answers from the
+  // agent's record or, for an order, sends it to KONG and replies with the KONG task number.
+  const askAgentChat = async (question: string) => {
+    setSending(true);
+    setReply({ question, answer: "Enviando…" });
+    try {
+      // A retry of the same unanswered text reuses its requestId, so KONG gets the same idempotency key.
+      const requestId = pendingRef.current?.text === question ? pendingRef.current.requestId : `office-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+      pendingRef.current = { text: question, requestId };
+      const res = await fetch(`/api/agent-chat/${encodeURIComponent(agent.id)}/messages`, {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: question, requestId, ...(threadRef.current ? { threadId: threadRef.current } : {}) }),
+      });
+      const body = await res.json().catch(() => null) as { error?: string; thread?: { id: string }; messages?: Array<{ role: string; text: string }> } | null;
+      if (!res.ok) throw new Error(body?.error || "No se pudo hablar con el agente.");
+      pendingRef.current = undefined;
+      if (body?.thread?.id) threadRef.current = body.thread.id;
+      const answer = [...(body?.messages || [])].reverse().find(item => item.role === "agent" || item.role === "handoff")?.text;
+      setReply({ question, answer: (answer || "Sin respuesta registrada.").replace(/\*\*/g, "").replace(/`/g, "") });
+    } catch (error) {
+      setReply({ question, answer: error instanceof Error ? error.message : "No se pudo hablar con el agente." });
+    } finally { setSending(false); }
+  };
   return <form className="mt-3 space-y-1 rounded-lg border border-cyan-200/20 p-2 text-[11px]" onSubmit={event => {
     event.preventDefault();
     const question = message.trim();
-    if (!question) return;
+    if (!question || sending) return;
     const city = agent.cityAgent;
     const text = question.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
     const notice = city ? officeCityEvidenceNotice(city) : undefined;
@@ -959,15 +851,19 @@ function OfficeAgentStatusChat({ agent }: { agent: PanelAgent }) {
     else if (agent.kongEvidence && /tarea|haces|haciendo/.test(text)) answer = agent.kongEvidence.signal === "current"
       ? "KONG Native reporta actividad; no hay una tarea en ejecución verificada."
       : "No hay una tarea actual verificada para este puesto.";
-    else if (!/estado|trabaj|bloque|error|problema|hola/.test(text)) answer = "Puedo responder sobre el estado registrado, el último resultado y el próximo turno. Esta consulta no inicia ni cambia trabajos.";
+    else if (!/estado|trabaj|bloque|error|problema|hola/.test(text)) {
+      if (workspace.isOwner && isKongOrderAgent(agent.id)) { setMessage(""); void askAgentChat(question); return; }
+      answer = "Puedo responder sobre el estado registrado, el último resultado y el próximo turno. Esta consulta no inicia ni cambia trabajos.";
+    }
     setReply({ question, answer });
     setMessage("");
   }}>
     <label htmlFor="world-status-chat-input" className="block font-semibold text-cyan-100">Chat de estado</label>
-    {reply && <div role="status" className="space-y-1"><p className="break-words text-slate-400">Tú · {reply.question}</p><p>{agent.role} · {reply.answer}</p></div>}
+    {reply && <div role="status" className="space-y-1"><p className="break-words text-slate-400">Tú · {reply.question}</p><p className="whitespace-pre-line break-words">{agent.role} · {reply.answer}</p>
+      {threadRef.current && <a href={`/agent-chat?agent=${encodeURIComponent(agent.id)}`} className="text-cyan-200 underline" data-testid="world-status-chat-open-thread">Ver la conversación y el estado de la tarea</a>}</div>}
     <div className="flex gap-1">
-      <input id="world-status-chat-input" value={message} onChange={event => setMessage(event.target.value)} maxLength={240} placeholder="¿Qué estás haciendo?" className="min-w-0 flex-1 rounded border border-white/20 bg-black px-2 py-1" />
-      <button type="submit" disabled={!message.trim()} className="rounded bg-cyan-100 px-2 py-1 font-semibold text-slate-950 disabled:opacity-50">Preguntar</button>
+      <input id="world-status-chat-input" value={message} onChange={event => setMessage(event.target.value)} maxLength={workspace.isOwner && isKongOrderAgent(agent.id) ? KONG_ORDER_MAX_TEXT : 240} placeholder={workspace.isOwner && isKongOrderAgent(agent.id) ? "Pregunta o dale una orden…" : "¿Qué estás haciendo?"} className="min-w-0 flex-1 rounded border border-white/20 bg-black px-2 py-1" />
+      <button type="submit" disabled={!message.trim() || sending} className="rounded bg-cyan-100 px-2 py-1 font-semibold text-slate-950 disabled:opacity-50">Preguntar</button>
     </div>
   </form>;
 }

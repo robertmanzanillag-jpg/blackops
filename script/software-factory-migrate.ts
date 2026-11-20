@@ -9,7 +9,7 @@ async function main() {
   if (!process.env.DATABASE_URL?.trim()) throw new Error("DATABASE_URL_REQUIRED");
   const tables = factoryTableNames();
   if (!tables.length) throw new Error("FACTORY_SCHEMA_EMPTY");
-  const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 10000 });
+  const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 10000 , application_name: "blackops-migrate" });
   pool.on("error", () => undefined);
   try {
     const client = await pool.connect();

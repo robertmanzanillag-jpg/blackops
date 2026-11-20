@@ -1,0 +1,55 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import express from "express";
+import { emptyCompanyState } from "../shared/agent-company";
+import { emptyCouncilState } from "../shared/agent-council";
+import { OFFICE_FEATURE_MAP } from "../shared/office-verification";
+import { buildOfficeVerification } from "../server/office-verification";
+import { registerOfficeRoutes } from "../server/office-routes";
+import { createSignedLocalAuthCookieValue } from "../server/user-context";
+
+const owner = "verification-owner", now = Date.parse("2026-11-17T23:00:00Z");
+const state = () => ({ ...emptyCouncilState(), company: emptyCompanyState() });
+test("enabled configuration alone never claims activity or improvement and report is read-only", () => {
+  const original = state(), before = JSON.stringify(original);
+  const result = buildOfficeVerification(original, owner, now, { OFFICE_CAPABILITY_TRAINING_ENABLED: "true", OFFICE_SELF_HEAL_ENABLED: "true" });
+  assert.equal(result.evidenceStatus, "missing");
+  assert.equal(result.latestEvidenceAt, null);
+  assert.equal(result.mechanisms.evals.enabled, true);
+  assert.equal(result.mechanisms.evals.verifiedImprovements, 0);
+  assert.equal(result.mechanisms.feedback.verified, 0);
+  assert.match(result.limitations.join(" "), /no prueban.*heartbeat/);
+  assert.equal(JSON.stringify(original), before);
+  assert.equal(new Set(OFFICE_FEATURE_MAP.map(row => row.id)).size, OFFICE_FEATURE_MAP.length);
+  assert.ok(OFFICE_FEATURE_MAP.every(row => row.route.startsWith("/") && row.api.startsWith("/api/") && row.test.startsWith("tests/")));
+});
+test("invalid or foreign journals fail closed rather than reporting zero failures", () => {
+  const original = state();
+  assert.throws(() => buildOfficeVerification({ ...original, officeExecution: { capabilityTraining: { version: 1, ownerKey: "foreign", policies: [], runs: [] } } } as any, owner, now));
+  assert.throws(() => buildOfficeVerification({ ...original, officeExecution: { selfHeal: {} } } as any, owner, now));
+});
+test("verification API authenticates owner before reading and does not cache private evidence", async t => {
+  const saved = { ...process.env };
+  Object.assign(process.env, { NODE_ENV: "test", DEFAULT_USER_ID: owner, SESSION_SECRET: "verification-local-test-only-secret" });
+  t.after(() => { for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key]; Object.assign(process.env, saved); });
+  let reads = 0, unavailable = false;
+  const app = express();
+  registerOfficeRoutes(app, { verificationReader: async () => { reads++; if (unavailable) throw Error("private diagnostic"); return buildOfficeVerification(state(), owner, now, {}); } });
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise<void>(resolve => server.once("listening", resolve));
+  t.after(() => new Promise<void>(resolve => { server.close(resolve); server.closeAllConnections(); }));
+  const url = `http://127.0.0.1:${(server.address() as any).port}/api/agents-office/verification`;
+  const headers = (id: string) => ({ cookie: `blackops.uid=${createSignedLocalAuthCookieValue(id)}` });
+  assert.equal((await fetch(url)).status, 401);
+  assert.equal((await fetch(url, { headers: { "x-user-id": owner } })).status, 401);
+  assert.equal((await fetch(url, { headers: headers("partner") })).status, 403);
+  assert.equal(reads, 0);
+  const response = await fetch(url, { headers: headers(owner) });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.equal((await response.json()).mechanisms.evals.verifiedImprovements, 0);
+  unavailable = true;
+  const failed = await fetch(url, { headers: headers(owner) });
+  assert.equal(failed.status, 503);
+  assert.doesNotMatch(await failed.text(), /private diagnostic/);
+});

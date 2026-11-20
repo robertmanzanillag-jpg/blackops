@@ -60,7 +60,11 @@ export const rawSocial=z.array(z.object({id,createdAt:stamp,campaignId:z.string(
 export const rawClipReport=z.object({id,userId:id,createdAt:stamp,publishMode,plannedClips:z.array(z.unknown()).max(10000)});
 export const cycleTotals=z.object({posts:num.int(),dailyTargetPosts:num.int(),weeklyTargetClips:num.int(),backlogPosts:num.int(),gapToDailyTarget:num.int(),scheduled:num.int(),readyForManual:num.int(),blocked:num.int(),draftReady:num.int(),rightsReview:num.int(),needsSource:num.int()});
 export const rawClipCycle=z.object({id,userId:id,createdAt:stamp,automation:z.object({id,createdAt:stamp,status:cycleState,totals:cycleTotals,posts:z.array(z.unknown()).max(10000)})});
-export const rawClipMetrics=z.object({generatedAt:stamp.nullable(),records:z.array(z.object({id,accountId:id,clipId:id,publishedAt:stamp.nullable(),views:num,likes:num,comments:num,shares:num,saves:num})).max(10000)});
+/** publishedAt is copied verbatim by the producer from platform/Metricool CSV
+ * exports ("2026-11-18", "11/18/2026 10:00", ...). It is never stored or
+ * audited, so its format must not turn a real metrics summary into invalid
+ * evidence; it is only bounded. */
+export const rawClipMetrics=z.object({generatedAt:stamp.nullable(),records:z.array(z.object({id,accountId:id,clipId:id,publishedAt:z.string().max(500).nullable(),views:num,likes:num,comments:num,shares:num,saves:num})).max(10000)});
 
 /** Stored projections: strict, so nothing beyond the audited fields survives.
  * Producer ids (which may embed URLs, names or emails) are replaced by the
@@ -78,6 +82,11 @@ const storedReport=z.discriminatedUnion("type",[storedDaily,storedCycle]);
 export const storedDocumentSchemas={news_state:storedNews,products:storedProducts,suppliers:storedSuppliers,social_metrics:storedSocial,clip_metrics:storedClipMetrics,clip_report:storedReport} as const;
 export type StoredDocument<K extends OfficeSourceDocumentKind>=z.infer<typeof storedDocumentSchemas[K]>;
 
+/** A well-formed report that belongs to another user of the same host. It is
+ * not this owner's evidence (the durable copy is already keyed by the report's
+ * own userId), so the shared-folder reader skips it instead of treating the
+ * owner's folder as corrupt. */
+export class ForeignOfficeSourceDocumentError extends Error {constructor(){super("Foreign report");this.name="ForeignOfficeSourceDocumentError";}}
 function reportType(key:string):"daily"|"cycle" {
  if(DAILY_REPORT_NAME.test(key))return "daily";if(CYCLE_REPORT_NAME.test(key))return "cycle";
  throw new Error("Invalid report name");
@@ -95,8 +104,8 @@ export function projectOfficeSourceDocument<K extends OfficeSourceDocumentKind>(
   case "social_metrics":value=rawSocial.parse(raw).map(q=>({id:sourceRowId("campaign_metric",q.id),createdAt:q.createdAt,impressions:q.impressions,views:q.views,orders:q.orders,revenueUsd:q.revenueUsd,spendUsd:q.spendUsd}));break;
   case "clip_metrics":{const x=rawClipMetrics.parse(raw);value={generatedAt:x.generatedAt,records:x.records.map(q=>({id:sourceRowId("clip_metric",q.id),views:q.views,likes:q.likes,comments:q.comments,shares:q.shares,saves:q.saves}))};break;}
   case "clip_report":{
-   if(reportType(key)==="cycle"){const x=rawClipCycle.parse(raw);if(x.userId!==context.owner || x.id!==x.automation.id || x.createdAt!==x.automation.createdAt || x.automation.posts.length!==x.automation.totals.posts)throw new Error("Invalid cycle report");value={type:"cycle",id:sourceRowId("clip_cycle",x.id),createdAt:x.createdAt,status:x.automation.status,totals:{...x.automation.totals}};}
-   else{const x=rawClipReport.parse(raw);if(x.userId!==context.owner)throw new Error("Foreign report");value={type:"daily",id:sourceRowId("clip_plan",x.id),createdAt:x.createdAt,publishMode:x.publishMode,plannedClips:x.plannedClips.length};}
+   if(reportType(key)==="cycle"){const x=rawClipCycle.parse(raw);if(x.id!==x.automation.id || x.createdAt!==x.automation.createdAt || x.automation.posts.length!==x.automation.totals.posts)throw new Error("Invalid cycle report");if(x.userId!==context.owner)throw new ForeignOfficeSourceDocumentError();value={type:"cycle",id:sourceRowId("clip_cycle",x.id),createdAt:x.createdAt,status:x.automation.status,totals:{...x.automation.totals}};}
+   else{const x=rawClipReport.parse(raw);if(x.userId!==context.owner)throw new ForeignOfficeSourceDocumentError();value={type:"daily",id:sourceRowId("clip_plan",x.id),createdAt:x.createdAt,publishMode:x.publishMode,plannedClips:x.plannedClips.length};}
    break;
   }
   default:throw new Error("Unknown source document kind");

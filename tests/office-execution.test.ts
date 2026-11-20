@@ -1,7 +1,9 @@
+import {fixtureFactoryInvocation,fixtureFactoryPricing} from './fixtures/factory-api-budget';
+const createOfficeExecution:typeof actualCreateOfficeExecution=(council,env={},now=Date.now,deps={})=>actualCreateOfficeExecution(council,{...env,FACTORY_API_PRICING_CONFIG:fixtureFactoryPricing(env.OFFICE_OPENAI_MODEL??"test-model")},now,{factoryInvocation:fixtureFactoryInvocation(()=>new Date(now())),...deps});
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
-import { createOfficeExecution } from "../server/office-execution";
+import { createOfficeExecution as actualCreateOfficeExecution } from "../server/office-execution";
 import { createAgentCouncil, CouncilStateConflict } from "../server/agent-council";
 import { emptyCouncilState } from "../shared/agent-council";
 import { advanceCompany } from "../shared/agent-company";
@@ -28,7 +30,7 @@ test("durable admission binds active guidance, accounts usage and confirms actua
   const diff = "+const safe = true;";
   const execution = createOfficeExecution(council, env, () => NOW, {
     loadPr: async prUrl => ({ prUrl, headSha: "a".repeat(40), diff, diffSha256: createHash("sha256").update(diff).digest("hex") }),
-    fetch: (async (_url, options) => { request = JSON.parse(String(options?.body)); return new Response(JSON.stringify({ id: "resp_test", model: "test-model", status: "completed", usage: { input_tokens: 20, output_tokens: 10, total_tokens: 30 }, output: [{ type: "message", role: "assistant", status: "completed", content: [{ type: "output_text", text: JSON.stringify({ verdict: "pass", summary: "Reviewed", findings: [] }) }] }] })); }) as typeof fetch,
+    fetch: (async (_url, options) => { request = JSON.parse(String(options?.body)); return new Response(JSON.stringify({ id: "resp_test", model: "test-model", status: "completed", usage: { input_tokens_details:{cached_tokens:0}, input_tokens: 20, output_tokens: 10, total_tokens: 30 }, output: [{ type: "message", role: "assistant", status: "completed", content: [{ type: "output_text", text: JSON.stringify({ verdict: "pass", summary: "Reviewed", findings: [] }) }] }] })); }) as typeof fetch,
   });
   const task = f.task(); assert.equal(await execution.admission.ready(), true);
   assert.equal(await execution.admission.begin(task), true);
@@ -87,7 +89,7 @@ test("injected shared credits bind paid review to admitted job across restart an
   const deps = { sharedCredits,
     loadPr: async (prUrl: string) => ({ prUrl, headSha: "a".repeat(40), diff, diffSha256: createHash("sha256").update(diff).digest("hex") }),
     fetch: (async () => { calls++; return Response.json({ id: "resp_shared_review", model: env.OFFICE_OPENAI_MODEL, status: "completed",
-      usage: { input_tokens: 20, output_tokens: 10, total_tokens: 30 }, output: [{ type: "message", role: "assistant", status: "completed",
+      usage: { input_tokens_details:{cached_tokens:0}, input_tokens: 20, output_tokens: 10, total_tokens: 30 }, output: [{ type: "message", role: "assistant", status: "completed",
         content: [{ type: "output_text", text: JSON.stringify({ verdict: "pass", summary: "Reviewed", findings: [] }) }] }] }); }) as typeof fetch,
   };
   const execution = createOfficeExecution(council, env, () => NOW, deps), task = f.task();

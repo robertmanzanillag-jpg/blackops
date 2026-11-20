@@ -55,3 +55,62 @@ test("database outage is propagated instead of manufacturing empty state", async
   await assert.rejects(store.read("owner"), /database unavailable/);
   await assert.rejects(store.transact("owner", async () => '{}'), /database unavailable/);
 });
+
+function lockTimeoutPool(failures: number) {
+  const rows = new Map<string, unknown>();
+  let lockAttempts = 0, updates = 0;
+  const pool: CouncilPool = { async connect() {
+    let pending: [string, unknown] | undefined;
+    return {
+      async query(sql, values = []) {
+        if (sql.includes("pg_advisory") && ++lockAttempts <= failures) {
+          throw Object.assign(new Error("canceling statement due to lock timeout"), { code: "55P03" });
+        }
+        if (sql.startsWith("SELECT state")) return { rows: rows.has(String(values[0])) ? [{ state: rows.get(String(values[0])) }] : [] };
+        if (sql.startsWith("INSERT")) pending = [String(values[0]), JSON.parse(String(values[1]))];
+        if (sql === "COMMIT" && pending) rows.set(...pending);
+        return { rows: [] };
+      },
+      release() {},
+    };
+  } };
+  return { pool, lockAttempts: () => lockAttempts, countUpdate: () => updates++ };
+}
+
+test("a lock timeout before the update is retried once the other writer finishes", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const h = lockTimeoutPool(1), store = createCouncilStore(h.pool);
+  const pending = store.transact("owner", async () => { h.countUpdate(); return '{"count":1}'; });
+  await new Promise(resolve => setImmediate(resolve));
+  t.mock.timers.tick(20_000);
+  assert.equal(await pending, '{"count":1}');
+  assert.equal(h.lockAttempts(), 2);
+  assert.equal(h.countUpdate(), 1, "the update ran exactly once");
+});
+
+test("persistent lock contention still fails after bounded retries", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const h = lockTimeoutPool(99), store = createCouncilStore(h.pool);
+  const pending = assert.rejects(store.transact("owner", async () => '{}'), (error: any) => error.code === "55P03");
+  for (let i = 0; i < 4; i++) { await new Promise(resolve => setImmediate(resolve)); t.mock.timers.tick(20_000); }
+  await pending;
+  assert.equal(h.lockAttempts(), 4);
+});
+
+test("a lock timeout raised after the update started is never retried", async () => {
+  const store = createCouncilStore({ async connect() { return {
+    async query(sql) { if (sql.startsWith("INSERT")) throw Object.assign(new Error("lock timeout"), { code: "55P03" }); return { rows: [] }; },
+    release() {},
+  }; } });
+  let updates = 0;
+  await assert.rejects(store.transact("owner", async () => { updates++; return '{}'; }), (error: any) => error.code === "55P03");
+  assert.equal(updates, 1);
+});
+
+test("every council transaction caps idle-in-transaction so a stalled holder cannot block other writers", async () => {
+  const calls: string[] = [];
+  const pool: CouncilPool = { async connect() { return { async query(sql: string) { calls.push(sql); return { rows: [] }; }, release() {} }; } };
+  await createCouncilStore(pool).transact("owner-1", async () => "{}");
+  const idx = calls.findIndex(sql => /SET LOCAL idle_in_transaction_session_timeout = '30000ms'/.test(sql));
+  assert.ok(idx > calls.indexOf("BEGIN") && idx < calls.findIndex(sql => sql.includes("pg_advisory")), calls.join(" | "));
+});

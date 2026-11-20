@@ -71,7 +71,9 @@ function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
-export function buildMonthlyAiSpendReport(runs: SpendRun[], now = new Date()) {
+export type ExtraSpendSource = { id: string; label: string; amountUsd: number; count: number; kind: "estimated" };
+
+export function buildMonthlyAiSpendReport(runs: SpendRun[], now = new Date(), extraSources: ExtraSpendSource[] = []) {
   const policy = getAiCostPolicySnapshot();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
@@ -87,8 +89,9 @@ export function buildMonthlyAiSpendReport(runs: SpendRun[], now = new Date()) {
   });
 
   const automationEstimateUsd = roundMoney(monthRuns.reduce((sum, run) => sum + estimateRunUsd(run.costEstimate), 0));
-  const trackedSpendUsd = roundMoney(automationEstimateUsd + manualAiSpendUsd + metricoolUsd + fixedToolsUsd);
-  const projectedVariableUsd = dayOfMonth > 0 ? (automationEstimateUsd + manualAiSpendUsd) / dayOfMonth * daysInMonth : 0;
+  const extraUsd = roundMoney(extraSources.reduce((sum, source) => sum + (Number.isFinite(source.amountUsd) ? Math.max(0, source.amountUsd) : 0), 0));
+  const trackedSpendUsd = roundMoney(automationEstimateUsd + extraUsd + manualAiSpendUsd + metricoolUsd + fixedToolsUsd);
+  const projectedVariableUsd = dayOfMonth > 0 ? (automationEstimateUsd + extraUsd + manualAiSpendUsd) / dayOfMonth * daysInMonth : 0;
   const projectedMonthUsd = roundMoney(projectedVariableUsd + metricoolUsd + fixedToolsUsd);
   const budgetUsedPct = policy.monthlyBudgetUsd > 0 ? Math.min(999, Math.round((trackedSpendUsd / policy.monthlyBudgetUsd) * 100)) : 0;
   const projectedBudgetPct = policy.monthlyBudgetUsd > 0 ? Math.min(999, Math.round((projectedMonthUsd / policy.monthlyBudgetUsd) * 100)) : 0;
@@ -113,6 +116,7 @@ export function buildMonthlyAiSpendReport(runs: SpendRun[], now = new Date()) {
     status,
     sources: [
       { id: "automation_runs", label: "Automation runs", amountUsd: automationEstimateUsd, count: monthRuns.length, kind: "estimated" },
+      ...extraSources.map((source) => ({ ...source, amountUsd: roundMoney(Math.max(0, source.amountUsd || 0)) })),
       { id: "manual_ai", label: "Manual AI/API MTD", amountUsd: roundMoney(manualAiSpendUsd), count: manualAiSpendUsd > 0 ? 1 : 0, kind: "manual_env" },
       { id: "metricool", label: "Metricool", amountUsd: roundMoney(metricoolUsd), count: metricoolUsd > 0 ? 1 : 0, kind: "fixed_env" },
       { id: "fixed_tools", label: "Other tools", amountUsd: roundMoney(fixedToolsUsd), count: fixedToolsUsd > 0 ? 1 : 0, kind: "fixed_env" },

@@ -83,6 +83,8 @@ export function createOfficeCloudWorker(options: {
   let checkingCapabilities: Promise<void> | undefined;
   let maintenance: Promise<void> | undefined;
   let lastScheduleCheck: number | undefined;
+  // True when the latest tick claimed a run; lets the bounded cloud run exit when idle.
+  let lastTickClaimed = false;
   const overdue = () => {
     if (active && executionDeadline !== undefined && now().getTime() >= executionDeadline) quarantined = true;
     return quarantined;
@@ -120,7 +122,9 @@ export function createOfficeCloudWorker(options: {
         await heartbeat();
       })().finally(() => { checkingCapabilities = undefined; });
     },
+    lastTickClaimed: () => lastTickClaimed,
     async tick() {
+      lastTickClaimed = false;
       if (active || quarantined) return;
       active = true;
       // Database admission itself can stall independently of provider calls.
@@ -147,6 +151,7 @@ export function createOfficeCloudWorker(options: {
         // Never replace its expired admission deadline with a new lease budget.
         if (overdue()) throw new Error("OFFICE_WORKER_PROGRESS_STALLED");
         if (!claimed) return;
+        lastTickClaimed = true;
         executionDeadline = Date.parse(claimed.leaseExpiresAt || "");
         if (!Number.isFinite(executionDeadline) || overdue()) {
           await store.markExpiredUnknown();

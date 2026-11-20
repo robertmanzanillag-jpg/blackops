@@ -13,6 +13,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
+import { execMagick } from "./clippers-portable-magick.mjs";
 import { pathToFileURL } from "node:url";
 
 const execFileAsync = promisify(execFile);
@@ -84,7 +85,9 @@ function cutFingerprint(sourceSha256, startSeconds, durationSeconds) {
 }
 
 async function runBinary(binary, args) {
-  return execFileAsync(binary, args, { encoding: "utf8", maxBuffer: 8 * 1024 * 1024, windowsHide: true });
+  const options = { encoding: "utf8", maxBuffer: 8 * 1024 * 1024, windowsHide: true };
+  if (binary === "magick") return execMagick(args, options);
+  return execFileAsync(binary, args, options);
 }
 
 async function probeMedia(filePath, run = runBinary) {
@@ -140,7 +143,8 @@ async function prepareSubtitleOverlay(subtitlePath, outputPath, durationSeconds,
     await run("magick", [
       "-background", "none", "-fill", "white", "-stroke", "black", "-strokewidth", "3",
       "-font", "Arial-Bold", "-pointsize", "58", "-gravity", "center", "-size", "900x300",
-      `caption:${segment.caption}`, imagePath,
+      // A leading @ would make ImageMagick read a file: escape it.
+      `caption:${String(segment.caption).replace(/^@/, "\\@")}`, imagePath,
     ]);
     concat.push(`file '${imagePath}'`, `duration ${(segment.end - segment.start).toFixed(3)}`);
     cursor = segment.end;

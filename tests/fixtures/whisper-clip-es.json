@@ -1,0 +1,18 @@
+{
+  "systeminfo": "AVX = 1 | AVX2 = 1 | FMA = 1 | F16C = 1",
+  "model": { "type": "base", "multilingual": true, "vocab": 51865 },
+  "params": { "model": "ggml-base.bin", "language": "es", "translate": false },
+  "result": { "language": "es" },
+  "transcription": [
+    { "timestamps": { "from": "00:00:00,000", "to": "00:00:00,640" }, "offsets": { "from": 0, "to": 640 }, "text": " [Música]" },
+    { "timestamps": { "from": "00:00:00,640", "to": "00:00:00,980" }, "offsets": { "from": 640, "to": 980 }, "text": " ¿Qué" },
+    { "timestamps": { "from": "00:00:00,980", "to": "00:00:01,300" }, "offsets": { "from": 980, "to": 1300 }, "text": " acaba" },
+    { "timestamps": { "from": "00:00:01,250", "to": "00:00:01,500" }, "offsets": { "from": 1250, "to": 1500 }, "text": " de" },
+    { "timestamps": { "from": "00:00:01,500", "to": "00:00:04,900" }, "offsets": { "from": 1500, "to": 4900 }, "text": " pasar?" },
+    { "timestamps": { "from": "00:00:05,000", "to": "00:00:05,020" }, "offsets": { "from": 5000, "to": 5020 }, "text": " ¡No!" },
+    { "timestamps": { "from": "00:00:06,000", "to": "00:00:06,000" }, "offsets": { "from": 6000, "to": 6000 }, "text": "" },
+    { "timestamps": { "from": "00:00:07,000", "to": "00:00:07,400" }, "offsets": { "from": 7000, "to": 7400 }, "text": " (risas)" },
+    { "timestamps": { "from": "00:00:27,800", "to": "00:00:29,100" }, "offsets": { "from": 27800, "to": 29100 }, "text": " increíble" },
+    { "timestamps": { "from": "00:00:29,200", "to": "00:00:29,600" }, "offsets": { "from": 29200, "to": 29600 }, "text": " después" }
+  ]
+}

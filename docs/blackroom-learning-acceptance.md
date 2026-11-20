@@ -39,7 +39,7 @@ Preserve existing uncommitted work in the primary checkout. Implement on an isol
 - Current regression: 225 BlackRoom tests pass; TypeScript check passes. Production deployment and end-to-end decision application remain pending.
 - Independent review found no blocking code findings and reran 146 targeted tests, TypeScript and build. Build reports an optional yt-dlp bundling warning from local Python; runtime downloader verification remains required.
 - CSV-only CEO evaluation with API access deliberately disabled consumed all 232 samples and kept five posts/day per network. All three decisions honestly remain collecting with no winner. Old exports have no new experiment references; this check does not fabricate historical attribution.
-- Draft PR: https://github.com/robertmanzanillag-jpg/blackops-reminder/pull/295 . No merge or deployment performed.
+- Draft PR: https://github.com/robertmanzanillag-jpg/blackops/pull/295 . No merge or deployment performed.
 
 ## Visual and downloader follow-up
 

@@ -1,3 +1,4 @@
+import { ceoRolePaused } from "./ceo-domain-policy";
 import {randomUUID} from "node:crypto";
 import {z} from "zod";
 import {canonicalEvidenceDigest as digest} from "./evidence-json";
@@ -33,7 +34,7 @@ export function roleAcademySummary(raw:unknown){
   const completed=rows.filter(j=>j.status==="completed" && j.generation===generation);
   const comparisons=completed.map(j=>({id:j.id,fixtureId:j.fixtureId,completedAt:j.completedAt!,incumbent:gradeRoleResponse(role,j.fixtureId,j.incumbent!.text),candidate:gradeRoleResponse(role,j.fixtureId,j.candidate!.text),incumbentTokens:j.incumbent!.usage.totalTokens,candidateTokens:j.candidate!.usage.totalTokens,incumbentDurationMs:j.incumbent!.durationMs,candidateDurationMs:j.candidate!.durationMs,artifactId:j.artifactId!}));
   const qualityImproved=comparisons.length===3 && new Set(comparisons.map(c=>c.fixtureId)).size===3 && new Set(comparisons.map(c=>c.completedAt.slice(0,10))).size===3 && comparisons.every(c=>c.candidate.passed && c.candidate.quality>c.incumbent.quality && c.candidateDurationMs<=c.incumbentDurationMs);
-  return {role,scope:"synthetic_narrow_skill" as const,status:latest?.status || "pending",reason:latest?.reason,completedPairs:comparisons.length,comparisons,qualityImproved,costComparison:"pending_priced_receipts" as const,candidateQualified:false as const,promoted:false as const,productionBlocker:"Requires comparable priced receipts, matching production capability, source and first verified execution. This training journal does not activate or replace a holder."};
+  return {role,paused:ceoRolePaused(role),scope:"synthetic_narrow_skill" as const,status:latest?.status || "pending",reason:latest?.reason,completedPairs:comparisons.length,comparisons,qualityImproved,costComparison:"pending_priced_receipts" as const,candidateQualified:false as const,promoted:false as const,productionBlocker:"Requires comparable priced receipts, matching production capability, source and first verified execution. This training journal does not activate or replace a holder."};
  });
 }
 export type RoleAcademyCall={executionId:string;maxOutputTokens:number};
@@ -54,7 +55,7 @@ export function createRoleAcademyRunner(options:{council:Pick<ReturnType<typeof 
    if(jobs.filter(j=>start-Date.parse(j.startedAt)<86400000).length>=options.dailyPairs)return next;
    // Fair order: all roles receive their first pair before any receives a second.
    const roles=[...OFFICE_CURRICULUM_ROLES].sort((a,b)=>jobs.filter(j=>j.role===a).length-jobs.filter(j=>j.role===b).length);
-   for(const role of roles){const career=company.careers[role];if(!career || career.inTrainingUntilGeneration)continue;
+   for(const role of roles){if(ceoRolePaused(role))continue;const career=company.careers[role];if(!career || career.inTrainingUntilGeneration)continue;
     const previous=jobs.filter(j=>j.role===role && j.generation===career.generation);
     if(previous.some(j=>["unknown","blocked"].includes(j.status) || start-Date.parse(j.startedAt)<86400000))continue;
     const fixture=roleFixtures(role).find(f=>!previous.some(j=>j.fixtureId===f.id));if(!fixture)continue;

@@ -257,3 +257,33 @@
   0% { transform: translateX(-100%); }
   100% { transform: translateX(200%); }
 }
+
+/* Office floating panels and the central panel: black, thin scrollbars (owner request).
+   Chrome/Edge/Firefox use the standard properties; Safari falls back to ::-webkit-scrollbar. */
+.office-scrollbar,
+.office-scrollbar * {
+  scrollbar-color: #000 transparent;
+  scrollbar-width: thin;
+}
+
+@supports not (scrollbar-color: auto) {
+  .office-scrollbar::-webkit-scrollbar,
+  .office-scrollbar *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .office-scrollbar::-webkit-scrollbar-track,
+  .office-scrollbar *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .office-scrollbar::-webkit-scrollbar-thumb,
+  .office-scrollbar *::-webkit-scrollbar-thumb {
+    background: #0a0a0a;
+    border: 1px solid rgb(255 255 255 / 0.08);
+    border-radius: 9999px;
+  }
+  .office-scrollbar::-webkit-scrollbar-thumb:hover,
+  .office-scrollbar *::-webkit-scrollbar-thumb:hover {
+    background: #111;
+  }
+}

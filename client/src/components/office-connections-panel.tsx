@@ -23,7 +23,7 @@ const categoryNames: Record<string, string> = { clubs: "Clubs", vip: "VIP", rest
 const qualityChecks = { events: "Calendarios y eventos", media: "Flyers e imágenes", vip: "Fuentes de reservas VIP" } as const;
 
 export function OfficeConnectionsPanel() {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("officePanel") === "history");
   const [message, setMessage] = useState("");
   const [prUrl, setPrUrl] = useState("");
   const [clock, setClock] = useState(Date.now);

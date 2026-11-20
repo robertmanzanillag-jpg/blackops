@@ -1,0 +1,51 @@
+{
+  "source": "https://ai.metricool.com/mcp",
+  "method": "tools/list",
+  "observedAt": "2026-11-18T15:22:14.269Z",
+  "inputSchemaSha256": "e8a8454f6d4de833250f35597c86086d37b685d9de75c8b9a895284e6a2c7cec",
+  "inputSchemaWithoutDescriptions": {
+    "additionalProperties": false,
+    "type": "object",
+    "properties": {
+      "date": {
+        "type": "string"
+      },
+      "blogId": {
+        "type": "string"
+      },
+      "info": {
+        "type": "string"
+      },
+      "mediaFiles": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "download_url": {
+              "type": "string"
+            },
+            "file_id": {
+              "type": "string"
+            },
+            "mime_type": {
+              "type": "string"
+            },
+            "file_name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "download_url",
+            "file_id"
+          ]
+        }
+      }
+    },
+    "required": [
+      "date",
+      "blogId",
+      "info"
+    ]
+  },
+  "mediaContract": "Public URL strings belong in the parsed info.media array; mediaFiles is picker-specific and ignored for non-ChatGPT clients."
+}

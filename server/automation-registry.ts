@@ -1,3 +1,4 @@
+import { assertCeoActionActive } from "./ceo-domain-policy";
 import { storage } from "./storage";
 import { listExistingAutomationDefinitions } from "./automation-definition-reads";
 import { createPendingActionForApproval, writeAuditLog } from "./trust-policy";
@@ -341,6 +342,7 @@ export async function recordManualAutomationRun(
   actorId: string
 ): Promise<AutomationRun> {
   const startedAt = new Date();
+  assertCeoActionActive({ actionType: automation.assignedAgentId || "", metadata: automation.metadata });
   const isRunnable = automation.status === "active" || automation.status === "paused";
 
   if (!isRunnable) {

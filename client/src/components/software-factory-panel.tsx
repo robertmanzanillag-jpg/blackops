@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { apiRequest } from "@/lib/queryClient";
 import type { SoftwareFactoryView, FactoryOfficeReviewLink } from "@shared/software-factory-view";
+import { AgentVitalityRoster } from "@/components/agent-vitality-roster";
 
 /** Read-only display of the office reviewer's verdict. Never implies merge or order completion. */
 function officeReviewLabel(review: FactoryOfficeReviewLink): string {
@@ -133,6 +134,8 @@ export function SoftwareFactoryPanel() {
           </li>)}</ol>}
         </section>
       </div>}
+      {/* Every registered agent (office, factory, Clippers lanes) with its vida, also visible from the factory. */}
+      <AgentVitalityRoster title="Vida de todos los agentes" testId="factory-vitality-roster" />
     </DialogContent>
   </Dialog>;
 }

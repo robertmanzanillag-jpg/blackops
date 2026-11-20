@@ -151,3 +151,53 @@ test("invalid bounds are rejected before ownership", async () => {
     await assert.rejects(runOfficeWorkerOnce(f.host, { ...f.options, durationMs }), /LIMIT_INVALID/);
   assert.equal(f.lock.held, false);
 });
+
+test("idle exit: stops after the configured time without claims and still releases ownership", async () => {
+  const f = fixture();
+  f.host.tick = async () => { f.calls.ticks++; return false; };
+  const result = await runOfficeWorkerOnce(f.host, { ...f.options, idleExitMs: 60_000 });
+  assert.equal(result.reason, "idle");
+  // 5 s polls: the run ends after ~60 s idle instead of running ~7 minutes to the claim cutoff.
+  assert.ok(f.calls.ticks >= 12 && f.calls.ticks <= 14, `ticks=${f.calls.ticks}`);
+  assert.equal(f.calls.academy, 1);
+  assert.equal(f.lock.held, false);
+  assert.deepEqual(f.pending(), { deadlines: 0, intervals: 0 });
+});
+
+test("idle exit: claimed work resets the idle clock; void ticks never trigger it", async () => {
+  const f = fixture();
+  let n = 0;
+  f.host.tick = async () => { f.calls.ticks++; n++; return n % 10 === 0; };
+  const result = await runOfficeWorkerOnce(f.host, { ...f.options, idleExitMs: 60_000 });
+  assert.equal(result.reason, "deadline", "a claim every 50 s keeps the run alive");
+  const g = fixture();
+  assert.equal((await runOfficeWorkerOnce(g.host, { ...g.options, idleExitMs: 60_000 })).reason, "deadline");
+});
+
+test("run bounds come from the environment with safe clamps", async () => {
+  const { officeOnceBoundsFromEnv, OFFICE_ONCE_DEFAULT_IDLE_EXIT_MS } = await import("../server/office-worker-once");
+  assert.deepEqual(officeOnceBoundsFromEnv({}), { durationMs: OFFICE_ONCE_MAX_DURATION_MS, idleExitMs: OFFICE_ONCE_DEFAULT_IDLE_EXIT_MS });
+  assert.deepEqual(officeOnceBoundsFromEnv({ OFFICE_RUN_MAX_MINUTES: "8", OFFICE_RUN_IDLE_EXIT_SECONDS: "0" }), { durationMs: 8 * 60_000, idleExitMs: 0 });
+  assert.equal(officeOnceBoundsFromEnv({ OFFICE_RUN_MAX_MINUTES: "2" }).durationMs, OFFICE_ONCE_CLAIM_WINDOW_MS + 60_000);
+  assert.equal(officeOnceBoundsFromEnv({ OFFICE_RUN_MAX_MINUTES: "60" }).durationMs, OFFICE_ONCE_MAX_DURATION_MS);
+  assert.equal(officeOnceBoundsFromEnv({ OFFICE_RUN_IDLE_EXIT_SECONDS: "5" }).idleExitMs, 30_000);
+  assert.equal(officeOnceBoundsFromEnv({ OFFICE_RUN_IDLE_EXIT_SECONDS: "junk" }).idleExitMs, OFFICE_ONCE_DEFAULT_IDLE_EXIT_MS);
+});
+
+test("55P03 owner-lock contention in a cycle skips that cycle and keeps the run going", async () => {
+  const f = fixture();
+  let n = 0;
+  f.host.tick = async () => { f.calls.ticks++; n++; if (n <= 2) throw Object.assign(new Error("canceling statement due to lock timeout"), { code: "55P03" }); return false; };
+  const result = await runOfficeWorkerOnce(f.host, { ...f.options, idleExitMs: 60_000 });
+  assert.equal(result.reason, "idle");
+  assert.ok(f.calls.ticks > 2);
+  assert.equal(f.lock.held, false);
+});
+
+test("a 55P03 after a council update started, or any other error, still ends the run unconfirmed", async () => {
+  for (const error of [Object.assign(new Error("x"), { code: "55P03", updateStarted: true }), Object.assign(new Error("x"), { code: "23505" })]) {
+    const f = fixture();
+    f.host.tick = async () => { throw error; };
+    assert.equal((await runOfficeWorkerOnce(f.host, f.options)).reason, "unconfirmed");
+  }
+});

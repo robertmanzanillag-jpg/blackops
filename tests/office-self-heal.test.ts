@@ -46,12 +46,34 @@ const record = (state: SelfHealState, c: CompanyState, observations: any[], jobs
   recordSelfHealFactory({ state, company: c, observations, journal: { jobs }, owner, now });
 const attemptRef = (state: SelfHealState, i = 0) => { const a = state.entries[i].attempts.at(-1)!; return { orderId: a.orderId, orderRevision: a.orderRevision }; };
 
-test("feature flag is off by default and the daily cap is bounded to 1..2", () => {
+test("feature flag is off unless 'true'; no fixed daily cap unless the optional variable sets one", () => {
   assert.deepEqual(selfHealSettings({}), { enabled: false });
-  assert.deepEqual(selfHealSettings({ OFFICE_SELF_HEAL_ENABLED: "true" }), { enabled: true, maxPerDay: 1 });
-  assert.deepEqual(selfHealSettings({ OFFICE_SELF_HEAL_ENABLED: "true", OFFICE_SELF_HEAL_MAX_ORDERS_PER_DAY: "2" }), { enabled: true, maxPerDay: 2 });
-  for (const bad of ["0", "3", "5", "1.5", "x"]) assert.throws(() => selfHealSettings({ OFFICE_SELF_HEAL_ENABLED: "true", OFFICE_SELF_HEAL_MAX_ORDERS_PER_DAY: bad }));
-  assert.throws(() => plan(undefined, [], T0, company(), 3), /DAILY_CAP/);
+  assert.deepEqual(selfHealSettings({ OFFICE_SELF_HEAL_ENABLED: "true" }), { enabled: true, maxPerDay: Number.POSITIVE_INFINITY, maxOpenOrders: 5 });
+  assert.deepEqual(selfHealSettings({ OFFICE_SELF_HEAL_ENABLED: "true", OFFICE_SELF_HEAL_MAX_ORDERS_PER_DAY: "" }), { enabled: true, maxPerDay: Number.POSITIVE_INFINITY, maxOpenOrders: 5 });
+  assert.deepEqual(selfHealSettings({ OFFICE_SELF_HEAL_ENABLED: "true", OFFICE_SELF_HEAL_MAX_ORDERS_PER_DAY: "2" }), { enabled: true, maxPerDay: 2, maxOpenOrders: 5 });
+  assert.deepEqual(selfHealSettings({ OFFICE_SELF_HEAL_ENABLED: "true", OFFICE_SELF_HEAL_MAX_ORDERS_PER_DAY: "7" }), { enabled: true, maxPerDay: 7, maxOpenOrders: 5 });
+  assert.equal((selfHealSettings({ OFFICE_SELF_HEAL_ENABLED: "true", OFFICE_SELF_HEAL_MAX_OPEN_ORDERS: "12" }) as any).maxOpenOrders, 12);
+  for (const bad of ["0", "21", "x"]) assert.throws(() => selfHealSettings({ OFFICE_SELF_HEAL_ENABLED: "true", OFFICE_SELF_HEAL_MAX_OPEN_ORDERS: bad }));
+  for (const bad of ["0", "101", "1.5", "x"]) assert.throws(() => selfHealSettings({ OFFICE_SELF_HEAL_ENABLED: "true", OFFICE_SELF_HEAL_MAX_ORDERS_PER_DAY: bad }));
+  assert.throws(() => plan(undefined, [], T0, company(), -1), /DAILY_CAP/);
+  assert.throws(() => planSelfHeal({ state: undefined, company: company(), journal: { jobs: [] }, owner, now: T0, maxPerDay: 2, fundableOrders: 1.5 }), /DAILY_CAP/);
+});
+
+test("credit pacer gates new orders: unlimited while funded, waiting orders count, zero opens none", () => {
+  const prs = [7, 8, 9, 10].map(n => ({ n }));
+  const jobs = [codeJob(T0, prs, prs.map(p => ({ code: "PR_FAILING_CHECKS", recordIds: [prId(p.n)] })))];
+  const unlimited = planSelfHeal({ state: undefined, company: company(), journal: { jobs }, owner, now: T0, maxPerDay: Number.POSITIVE_INFINITY, fundableOrders: 3 });
+  assert.equal(unlimited.created.length, 3);
+  // Same day: the three orders still wait for the factory, so 3 fundable units add nothing.
+  const again = planSelfHeal({ state: unlimited.state, company: unlimited.company, journal: { jobs }, owner, now: T0 + HOUR, maxPerDay: Number.POSITIVE_INFINITY, fundableOrders: 3 });
+  assert.equal(again.created.length, 0);
+  const more = planSelfHeal({ state: unlimited.state, company: unlimited.company, journal: { jobs }, owner, now: T0 + HOUR, maxPerDay: Number.POSITIVE_INFINITY, fundableOrders: 4 });
+  assert.equal(more.created.length, 1);
+  assert.equal(planSelfHeal({ state: undefined, company: company(), journal: { jobs }, owner, now: T0, maxPerDay: Number.POSITIVE_INFINITY, fundableOrders: 0 }).created.length, 0);
+  // Without the pacer the optional cap still applies; dedupe keeps one open order per finding.
+  assert.equal(planSelfHeal({ state: undefined, company: company(), journal: { jobs }, owner, now: T0, maxPerDay: 2 }).created.length, 2);
+  const all = planSelfHeal({ state: undefined, company: company(), journal: { jobs }, owner, now: T0, maxPerDay: Number.POSITIVE_INFINITY, fundableOrders: 100 });
+  assert.equal(all.created.length, 4);
 });
 
 test("allowlist: only small code findings on the factory repository become orders, with a fixed template", () => {
@@ -248,7 +270,8 @@ test("runner commits orders and ledger in one transaction; state parse is owner-
   assert.equal(c.orders.length, 1); assert.equal(execution.selfHeal.entries.length, 1);
   assert.equal(parseSelfHealState(execution.selfHeal, owner).entries[0].attempts[0].orderId, c.orders[0].id);
   assert.throws(() => parseSelfHealState(execution.selfHeal, "someone-else"), /OWNER_MISMATCH/);
-  assert.throws(() => createSelfHealRunner({ council, owner, maxPerDay: 3 }), /DAILY_CAP/);
+  assert.throws(() => createSelfHealRunner({ council, owner, maxPerDay: 0 }), /DAILY_CAP/);
+  assert.throws(() => createSelfHealRunner({ council, owner, maxPerDay: 101 }), /DAILY_CAP/);
   const fixId = selfHealPullRecordId(fixUrl); assert.equal(fixId, prId(FIX_PR));
 });
 
@@ -263,3 +286,41 @@ test("public view parse is defensive and the line names the four buckets", () =>
 
 // Unused-type guard for CompanyOrder import in older TS configs.
 export type _Order = CompanyOrder;
+
+test("order storms: at most 5 open system orders, and open owner orders are never evicted", () => {
+  const prs = Array.from({ length: 15 }, (_, i) => ({ n: 100 + i }));
+  const jobs = [codeJob(T0, prs, prs.map(p => ({ code: "PR_FAILING_CHECKS", recordIds: [prId(p.n)] })))];
+  const owners = (open: number, closed: number): CompanyState => ({ ...company(), orders: Array.from({ length: open + closed }, (_, i) => ({
+    id: `owner-${i}`, text: "orden del dueño", createdAt: iso(T0 - (i + 1) * 1000), assignees: [{ agentId: "code", status: "en_curso", note: "" }],
+    ...(i >= open ? { doneAt: iso(T0 - 500) } : {}) })) as CompanyOrder[] });
+  const funded = { maxPerDay: Number.POSITIVE_INFINITY, fundableOrders: 100 };
+  // 55 open owner orders: only 5 fit beside them; none is evicted.
+  const full = planSelfHeal({ state: undefined, company: owners(55, 0), journal: { jobs }, owner, now: T0, ...funded, maxOpenOrders: 20 });
+  assert.equal(full.created.length, 5);
+  assert.equal(full.company.orders.filter(o => o.id.startsWith("owner-")).length, 55);
+  assert.ok(full.company.orders.length <= 60);
+  // Default concurrency bound: 5 open system orders even with room and credit for 15.
+  const bounded = planSelfHeal({ state: undefined, company: owners(10, 45), journal: { jobs }, owner, now: T0, ...funded });
+  assert.equal(bounded.created.length, 5);
+  assert.equal(bounded.company.orders.filter(o => o.id.startsWith("owner-") && !o.doneAt).length, 10);
+  const again = planSelfHeal({ state: bounded.state, company: bounded.company, journal: { jobs }, owner, now: T0 + HOUR, ...funded });
+  assert.equal(again.created.length, 0);
+  // Closed orders make room; open ones stay: 45 open + 10 closed, bound 20 -> 15 created, all closed dropped.
+  const roomy = planSelfHeal({ state: undefined, company: owners(45, 10), journal: { jobs }, owner, now: T0, ...funded, maxOpenOrders: 20 });
+  assert.equal(roomy.created.length, 15);
+  assert.equal(roomy.company.orders.length, 60);
+  assert.equal(roomy.company.orders.filter(o => o.id.startsWith("owner-") && !o.doneAt).length, 45);
+  assert.equal(roomy.company.orders.filter(o => o.doneAt).length, 0);
+  assert.throws(() => planSelfHeal({ state: undefined, company: company(), journal: { jobs }, owner, now: T0, maxPerDay: 1, maxOpenOrders: 21 }), /DAILY_CAP/);
+});
+
+test("credit room counts orders in the factory that have not reached a built PR", () => {
+  const prs = [7, 8, 9].map(n => ({ n }));
+  const jobs = [codeJob(T0, prs, prs.map(p => ({ code: "PR_FAILING_CHECKS", recordIds: [prId(p.n)] })))];
+  const first = planSelfHeal({ state: undefined, company: company(), journal: { jobs }, owner, now: T0, maxPerDay: Number.POSITIVE_INFINITY, fundableOrders: 1 });
+  assert.equal(first.created.length, 1);
+  // The order moves into the factory (pending, no PR yet): it still holds its room.
+  const inFactory = { ...first.state, entries: first.state.entries.map(e => ({ ...e, status: "in_factory" as const, attempts: e.attempts.map(a => ({ ...a, factory: { observedAt: iso(T0 + 1), rootJobId: "root-1", state: "pending" as const } })) })) } as SelfHealState;
+  assert.equal(planSelfHeal({ state: inFactory, company: first.company, journal: { jobs }, owner, now: T0 + HOUR, maxPerDay: Number.POSITIVE_INFINITY, fundableOrders: 1 }).created.length, 0);
+  assert.equal(planSelfHeal({ state: inFactory, company: first.company, journal: { jobs }, owner, now: T0 + HOUR, maxPerDay: Number.POSITIVE_INFINITY, fundableOrders: 2 }).created.length, 1);
+});

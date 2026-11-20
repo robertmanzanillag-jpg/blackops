@@ -36,14 +36,17 @@ test("completed evidence does not animate as working; expired evidence clears ru
   assert.ok(disconnected.agents.every(agent=>agent.status.state !== "working"));
 });
 
-test("Native aliases reuse the observed desk and the external video seat", () => {
+test("KONG desks come only from the snapshot: no placeholder seats, one desk per agent, the video seat reused", () => {
   const native = { ...evidence, agents: [
     { ...evidence.agents[0], id: "venues", name: "Venues", kind: "department", state: "running" },
     { ...evidence.agents[0], id: "native-video", name: "Videos Kong", kind: "department", state: "running" },
   ] } as OfficeKongAuditResult["evidence"];
   const wing = buildKongOfficeWing(native, [], {"kong-videos": {state:"offline",label:"Publicador externo"}}, now);
-  assert.equal(wing.agents.filter(agent=>agent.kongEvidence?.id === "kong:Venues").length, 1);
-  assert.equal(wing.agents.find(agent=>agent.id === "kong:venues")?.status.state, "available");
+  // The snapshot desk keeps KONG's own state (running without a lease is never "working").
+  assert.equal(wing.agents.filter(agent=>agent.id === "kong:venues").length, 1);
+  assert.notEqual(wing.agents.find(agent=>agent.id === "kong:venues")?.status.state, "working");
+  for (const placeholder of ["kong:KONG AI", "kong:Promoters + Mesas", "kong:Kong Legal"]) assert.ok(!wing.agents.some(agent=>agent.id === placeholder), placeholder);
+  assert.ok(!wing.departments.some(group=>group.id === "kong-native"));
   assert.ok(!wing.agents.some(agent=>agent.id === "kong:Venues"));
   assert.ok(!wing.agents.some(agent=>agent.id === "kong:native-video"));
   assert.equal(wing.agents.find(agent=>agent.id === "kong-videos")?.status.state, "offline");

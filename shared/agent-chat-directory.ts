@@ -7,7 +7,7 @@
 import { AGENT_CHAT_PROFILES, KONG_CITY_CATEGORY_WORDS, normalizeChatText, parseKongCityAgentId, type AgentChatProfile } from "./agent-chat-routing";
 import { BLACKROOM_LEGACY_MEMBER_IDS, BLACKROOM_TEAM } from "./blackroom-team";
 import { FACTORY_AGENTS } from "./factory-office-agents";
-import { isSpecialistId, specialistTopicLabel, type CompanyState, type Trainee } from "./agent-company";
+import { isSpecialistId, mainCompanyView, specialistTopicLabel, type CompanyState, type Trainee } from "./agent-company";
 
 export type AgentChatGroup = "blackops" | "blackroom" | "kong-desk" | "kong-city" | "factory" | "academy";
 export type AgentChatEntry = AgentChatProfile & {
@@ -89,9 +89,10 @@ export function buildAgentChatDirectory(state: DirectoryState): AgentChatEntry[]
     const topic = specialistTopicLabel(id);
     entries.push({ id, name: `Especialista en ${topic}`, job: `Especialista de la academia para órdenes de ${topic}.`, aliases: [`especialista en ${normalizeChatText(topic)}`], group: "academy", orderable: false });
   });
+  // KONG careers live in the main company: list each trainee once, labelled with its wing.
   for (const [company, kong] of [[state.company, false], [state.kongCompany, true]] as const) {
     let trainees: Trainee[] = [];
-    safely(() => { trainees = activeTrainees(company); });
+    safely(() => { trainees = activeTrainees(kong ? company : mainCompanyView(company)); });
     for (const trainee of trainees) safely(() => {
       const id = `trainee:${trainee.id}`;
       if (!isAgentChatIdShape(id) || typeof trainee.nickname !== "string") return;

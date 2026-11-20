@@ -4,6 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+// The shared cross-account ledger guard has its own tests (tests/clippers-mac-ledger-guard.test.mjs).
+const allowGuard = { reserve: async () => ({ ok: true, evidence: { ledger: "test" } }) };
+
 import {
   buildPublicationSchedule,
   runMetricoolAutopilot,
@@ -79,6 +82,7 @@ test("dry-run validates a verified media receipt without credentials or network 
       dryRun: true,
       env: { CLIPPERS_METRICOOL_BLOG_ID: "6431687", CLIPPERS_TIKTOK_ACCOUNT: "streamersclipusa" },
       workspaceRoot,
+      ledgerGuard: allowGuard,
       queue: { targetDailyClips: 5, items: [eligible] },
       ledger: [],
       mediaReceipts: [mediaReceipt],
@@ -106,6 +110,7 @@ test("blocks an item whose public URL has no matching upload receipt", async () 
         CLIPPERS_METRICOOL_BLOG_ID: "6431687",
       },
       workspaceRoot,
+      ledgerGuard: allowGuard,
       queue: { targetDailyClips: 5, items: [eligible] },
       ledger: [],
       mediaReceipts: [],
@@ -133,6 +138,7 @@ test("schedules eligible unique rows through Metricool MCP and writes no paid sp
         CLIPPERS_TIKTOK_ACCOUNT: "streamersclipusa",
       },
       workspaceRoot,
+      ledgerGuard: allowGuard,
       mediaReceipts: [mediaReceipt],
       queue: { targetDailyClips: 5, items: [eligible] },
       ledger: [],
@@ -190,6 +196,7 @@ test("records an uncertain Metricool outcome and never retries it silently", asy
         CLIPPERS_TIKTOK_ACCOUNT: "streamersclipusa",
       },
       workspaceRoot,
+      ledgerGuard: allowGuard,
       mediaReceipts: [mediaReceipt],
       queue: { targetDailyClips: 5, items: [eligible] },
       ledger: [],
@@ -227,6 +234,7 @@ test("records an uncertain Metricool outcome and never retries it silently", asy
         CLIPPERS_METRICOOL_BLOG_ID: "6431687",
       },
       workspaceRoot,
+      ledgerGuard: allowGuard,
       mediaReceipts: [mediaReceipt],
       queue: { targetDailyClips: 5, items: [eligible] },
       ledger: result.results,
@@ -258,6 +266,7 @@ test("blocks a queue item routed to a different Metricool blog", async () => {
         CLIPPERS_METRICOOL_BLOG_ID: "6431687",
       },
       workspaceRoot,
+      ledgerGuard: allowGuard,
       mediaReceipts: [mediaReceipt],
       queue: { targetDailyClips: 5, items: [{ ...eligible, blogId: 6595747 }] },
       ledger: [],
@@ -285,6 +294,7 @@ test("blocks a slot that would run after the verified campaign expiry", async ()
         CLIPPERS_METRICOOL_BLOG_ID: "6431687",
       },
       workspaceRoot,
+      ledgerGuard: allowGuard,
       mediaReceipts: [mediaReceipt],
       queue: {
         targetDailyClips: 5,
@@ -320,6 +330,7 @@ test("blocks an already expired campaign without calling Metricool", async () =>
         CLIPPERS_METRICOOL_BLOG_ID: "6431687",
       },
       workspaceRoot,
+      ledgerGuard: allowGuard,
       mediaReceipts: [mediaReceipt],
       queue: {
         targetDailyClips: 5,
@@ -352,6 +363,7 @@ test("deduplicates identical items inside one queue before calling Metricool", a
         CLIPPERS_METRICOOL_BLOG_ID: "6431687",
       },
       workspaceRoot,
+      ledgerGuard: allowGuard,
       mediaReceipts: [mediaReceipt],
       queue: { targetDailyClips: 5, items: [eligible, { ...eligible }] },
       ledger: [],
@@ -396,6 +408,7 @@ test("skips a concurrent autopilot run while its lock is active", async () => {
     const result = await runMetricoolAutopilot({
       env: { CLIPPERS_METRICOOL_AUTOPUBLISH_AUTHORIZED: "true" },
       workspaceRoot,
+      ledgerGuard: allowGuard,
       mediaReceipts: [mediaReceipt],
       queue: { targetDailyClips: 5, items: [eligible] },
     });

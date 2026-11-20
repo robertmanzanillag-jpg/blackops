@@ -77,3 +77,16 @@ export function integrationFor(id: string, integrations: Record<string, AgentInt
 export function unscoredAgentIds(integrations: Record<string, AgentIntegration>): string[] {
   return Object.entries(integrations).filter(([, value]) => value.mode !== "activa").map(([id]) => id);
 }
+
+/**
+ * Main-company agents that are never scored, fired or ranked whatever the overrides say: the
+ * mechanic (council member, no work of its own) and the KONG guides (`kong:*`, no backend).
+ */
+export function isAlwaysUnscoredMainAgent(id: string): boolean {
+  return id === "mechanic" || id.startsWith("kong:");
+}
+
+/** The council's rotation exemption for the main company: always-unscored ids plus non-active integrations. */
+export function isMainCompanyUnscored(id: string, integrations: Record<string, AgentIntegration>): boolean {
+  return isAlwaysUnscoredMainAgent(id) || integrationFor(id, integrations).mode !== "activa";
+}

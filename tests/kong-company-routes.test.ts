@@ -7,7 +7,7 @@ import { registerAgentCouncilRoutes } from "../server/agent-council-routes";
 
 test("real council routes isolate KONG owner writes and strip KONG state for members", async t => {
   const state = emptyCouncilState();
-  state.kongCompany.orders.push({ id: "private-order", text: "Owner private request", createdAt: new Date().toISOString(), assignees: [] });
+  state.company.orders.push({ id: "private-order", text: "Owner private request", createdAt: new Date().toISOString(), assignees: [], scope: "kong" });
   state.kongObservedAt = new Date().toISOString();
   state.kongLastStatuses["kong:venues"] = { state: "offline", label: "Fixture" };
   state.kongLastStatuses["kong:whatsapp_reader"] = { state: "checking", label: "Owner-only reader evidence" };

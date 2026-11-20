@@ -7,6 +7,7 @@ import {
 
 test("derives every factory table from the prepared schema", () => {
   assert.deepEqual(factoryTableNames(), [
+    "software_factory_api_authority",
     "software_factory_controls", "software_factory_budget", "software_factory_jobs", "software_factory_findings",
     "software_factory_projects", "software_factory_workers",
   ]);
