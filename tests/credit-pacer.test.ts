@@ -230,18 +230,20 @@ test("capability training skips a paid run when the audit inputs equal the last 
   assert.deepEqual((life as any).skippedSourceJobIds, [today.id]);
 });
 
-test("workflow defaults: self-heal on, no fixed order cap, system orders admitted, notification step scoped", async () => {
+test("workflow defaults: self-heal off (public default), system orders admitted, notification step scoped", async () => {
   const { readFile } = await import("node:fs/promises");
   const workflow = await readFile(new URL("../.github/workflows/office-worker-cloud.yml", import.meta.url), "utf8");
-  assert.equal(workflow.match(/OFFICE_SELF_HEAL_ENABLED: \$\{\{ vars\.OFFICE_SELF_HEAL_ENABLED \|\| 'true' \}\}/g)?.length, 2);
-  assert.equal(workflow.match(/OFFICE_SELF_HEAL_MAX_ORDERS_PER_DAY: \$\{\{ vars\.OFFICE_SELF_HEAL_MAX_ORDERS_PER_DAY \}\}/g)?.length, 2);
-  assert.match(workflow, /^env:\n  FACTORY_AUTO_ADMIT_SYSTEM_ORDERS: \$\{\{ vars\.FACTORY_AUTO_ADMIT_SYSTEM_ORDERS \|\| 'true' \}\}$/m);
-  assert.match(workflow, /OFFICE_CREDIT_OVERSPEND_ALERT_DAYS: \$\{\{ vars\.OFFICE_CREDIT_OVERSPEND_ALERT_DAYS \|\| '3' \}\}/);
+  const config = await readFile(new URL("../.github/office-config.env", import.meta.url), "utf8");
+  // Public repository: settings come from repository variables, else .github/office-config.env.
+  assert.match(config, /^OFFICE_SELF_HEAL_ENABLED=false$/m);
+  assert.match(config, /^FACTORY_AUTO_ADMIT_SYSTEM_ORDERS=true$/m);
+  assert.match(config, /^OFFICE_CREDIT_OVERSPEND_ALERT_DAYS=3$/m);
+  assert.doesNotMatch(workflow, /vars\.OFFICE_SELF_HEAL_ENABLED|vars\.FACTORY_AUTO_ADMIT_SYSTEM_ORDERS/);
   // issues: write only in the separate notify job, never in the office executor.
   assert.equal(workflow.match(/^      issues: write$/gm)?.length, 1);
   const jobs = workflow.split(/^  (?=[a-z-]+:\n)/m);
   const notifyJob = jobs.find(j => j.startsWith("notify:"))!, officeJob = jobs.find(j => j.startsWith("office-once:"))!;
-  assert.match(notifyJob, /needs: office-once/); assert.match(notifyJob, /permissions:\n      contents: read\n      issues: write\n/);
+  assert.match(notifyJob, /needs: \[config, office-once\]/); assert.match(notifyJob, /permissions:\n      contents: read\n      issues: write\n/);
   assert.match(notifyJob, /continue-on-error: true/); assert.match(notifyJob, /GH_TOKEN: \$\{\{ github\.token \}\}/);
   assert.doesNotMatch(notifyJob, /OPENAI_API_KEY|OFFICE_GITHUB_TOKEN|OPENAI_SHARED_CREDIT/);
   assert.doesNotMatch(officeJob, /issues: write|credit-pacer-notify/);

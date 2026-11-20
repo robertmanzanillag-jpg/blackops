@@ -43,15 +43,16 @@ test('default Linux installer attempts a GPU download; CPU workers and operator 
   assert.match(baseline.downloads[0], /onnxruntime-linux-x64-gpu-/);
   for (const [file, count] of [['office-worker-cloud.yml', 3], ['factory-ops.yml', 1]]) {
     const workflow = await readFile(new URL(`../.github/workflows/${file}`, import.meta.url), 'utf8');
-    const steps = workflow.split(/^      - /m).filter(step => step.startsWith('name: Install dependencies\n'));
+    const steps = workflow.split(/^      - /m).filter(step => step.startsWith('name: Install dependencies'));
     assert.equal(steps.length, count, `${file} retains its install steps`);
     for (const step of steps) {
       const value = step.match(/^          ONNXRUNTIME_NODE_INSTALL_CUDA: (\S+)$/m)?.[1];
       const fixed = install({ ONNXRUNTIME_NODE_INSTALL_CUDA: value });
       assert.equal(fixed.code, 0);
       assert.deepEqual(fixed.downloads, []);
-      assert.match(step, /run: npm ci --no-audit --no-fund/);
-      assert.doesNotMatch(step, /--ignore-scripts/, 'keep unrelated dependency installation checks');
+      // Public repository: secret-bearing jobs install without lifecycle scripts and rebuild esbuild explicitly.
+      assert.match(step, /npm ci --ignore-scripts --no-audit --no-fund/);
+      assert.match(step, /npm rebuild esbuild/);
     }
   }
 });
