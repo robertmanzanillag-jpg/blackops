@@ -104,12 +104,6 @@ export function councilPoolConfig(connectionString: string | undefined, role = "
     idle_in_transaction_session_timeout: COUNCIL_IDLE_IN_TRANSACTION_MS, application_name: councilApplicationName(env, role) };
 }
 
-/** The same bounded PostgreSQL pool the council store uses (DATABASE_URL). */
-export async function createCouncilPool(): Promise<CouncilPool> {
-  const [{ Pool }, { resolveDatabaseConnectionString }] = await Promise.all([import("pg"), import("./database-url")]);
-  return new Pool({ connectionString: resolveDatabaseConnectionString(), allowExitOnIdle: true, max: 2, connectionTimeoutMillis: 10000, statement_timeout: 30000 });
-}
-
 let store: ReturnType<typeof createCouncilStore> | undefined;
 export async function getCouncilStore() {
   if (!store) store = createCouncilStore(await createCouncilPool());
