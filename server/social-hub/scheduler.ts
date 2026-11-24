@@ -12,6 +12,7 @@ import {
   type SocialPostStatus,
 } from "@shared/social-hub";
 import { collectPostMetrics, summarizeMetrics } from "./analytics";
+import { kvGet, kvSet } from "./persist";
 import { SOCIAL_PROVIDERS, SocialPublishError, type FetchLike, type SocialCredentialStore, type SocialProvider } from "./providers";
 
 export interface SocialHubStore {
@@ -24,7 +25,19 @@ export interface SocialHubState {
   metrics: SocialMetricSnapshot[];
 }
 
-/** File store for now. Codex task #DB: move to drizzle tables social_posts / social_metrics. */
+/** Durable store (Postgres on Replit, file locally) via ./persist. Requires hydrateSocialHub() at startup. */
+export function persistentSocialHubStore(key = "state"): SocialHubStore {
+  return {
+    load() {
+      const raw = kvGet(key);
+      if (!raw) return { posts: [], metrics: [] };
+      try { return JSON.parse(raw); } catch { return { posts: [], metrics: [] }; }
+    },
+    save(state) { kvSet(key, JSON.stringify(state)); },
+  };
+}
+
+/** Plain file store (local scripts only — Replit wipes files on redeploy). */
 export function fileSocialHubStore(path = process.env.SOCIAL_HUB_STATE_PATH ?? "data/social-hub/state.json"): SocialHubStore {
   return {
     load() {

@@ -1,7 +1,6 @@
 // "Conectar cuenta" — OAuth for every Social Hub network. Tokens are encrypted at rest.
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { kvGet, kvSet } from "./persist";
 import type { SocialNetwork } from "@shared/social-hub";
 import type { FetchLike, SocialAccountCredential, SocialCredentialStore } from "./providers";
 
@@ -59,18 +58,13 @@ function unseal(sealed: string): string {
   return Buffer.concat([d.update(enc), d.final()]).toString("utf8");
 }
 
-const TOKENS_PATH = () => process.env.SOCIAL_HUB_TOKENS_PATH ?? "data/social-hub/tokens.enc";
-
 export function loadTokens(): StoredToken[] {
-  const p = TOKENS_PATH();
-  if (!existsSync(p)) return [];
-  try { return JSON.parse(unseal(readFileSync(p, "utf8"))); } catch { return []; }
+  const raw = kvGet("tokens");
+  if (!raw) return [];
+  try { return JSON.parse(unseal(raw)); } catch { return []; }
 }
 function saveTokens(list: StoredToken[]) {
-  const p = TOKENS_PATH();
-  mkdirSync(dirname(p), { recursive: true });
-  writeFileSync(`${p}.tmp`, seal(JSON.stringify(list)), { mode: 0o600 });
-  renameSync(`${p}.tmp`, p);
+  kvSet("tokens", seal(JSON.stringify(list)));
 }
 export function upsertTokens(rows: StoredToken[]) {
   const list = loadTokens().filter((t) => !rows.some((r) => r.network === t.network && r.accountId === t.accountId));
