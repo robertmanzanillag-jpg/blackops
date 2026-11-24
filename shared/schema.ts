@@ -1095,3 +1095,10 @@ export const insertScheduledReminderSchema = createInsertSchema(scheduledReminde
 
 export type ScheduledReminder = typeof scheduledReminders.$inferSelect;
 export type InsertScheduledReminder = z.infer<typeof insertScheduledReminderSchema>;
+
+// Social Hub (Metricool propio): queue + encrypted OAuth tokens. Created at runtime by server/social-hub/persist.ts.
+export const socialHubKv = pgTable("social_hub_kv", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
