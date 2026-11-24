@@ -1,6 +1,7 @@
 // Official-API publishers for every network the Social Hub supports.
 // Each provider only talks to the network's own API with the account's OAuth token.
 import type { SocialNetwork, SocialPost, SocialPostTarget } from "@shared/social-hub";
+import { METRICOOL_IMPORTED_ACCOUNTS } from "@shared/social-hub-accounts";
 
 export type FetchLike = typeof fetch;
 
@@ -272,8 +273,7 @@ export const SOCIAL_PROVIDERS: Record<SocialNetwork, SocialProvider> = {
  * Tokens stay in env/secrets; this file never stores them.
  */
 export function envCredentialStore(env: NodeJS.ProcessEnv = process.env): SocialCredentialStore {
-  let list: Array<{ network: SocialNetwork; accountId: string; tokenEnv: string }> = [];
-  try { list = JSON.parse(env.SOCIAL_HUB_ACCOUNTS ?? "[]"); } catch { list = []; }
+  const list = accountList(env);
   return {
     async get(network, accountId) {
       const row = list.find((a) => a.network === network && a.accountId === accountId);
@@ -283,8 +283,16 @@ export function envCredentialStore(env: NodeJS.ProcessEnv = process.env): Social
   };
 }
 
-export function listEnvAccounts(env: NodeJS.ProcessEnv = process.env): Array<{ network: SocialNetwork; accountId: string; connected: boolean }> {
-  let list: Array<{ network: SocialNetwork; accountId: string; tokenEnv: string }> = [];
-  try { list = JSON.parse(env.SOCIAL_HUB_ACCOUNTS ?? "[]"); } catch { list = []; }
-  return list.map((a) => ({ network: a.network, accountId: a.accountId, connected: Boolean(env[a.tokenEnv]) }));
+export function listEnvAccounts(env: NodeJS.ProcessEnv = process.env) {
+  const list = accountList(env);
+  return list.map((a) => ({ network: a.network, accountId: a.accountId, brand: a.brand, handle: a.handle, tokenEnv: a.tokenEnv, connected: Boolean(env[a.tokenEnv]) }));
+}
+
+/** Imported Metricool accounts + any extra from SOCIAL_HUB_ACCOUNTS (env wins on duplicates). */
+function accountList(env: NodeJS.ProcessEnv): Array<{ network: SocialNetwork; accountId: string; tokenEnv: string; brand?: string; handle?: string }> {
+  let extra: Array<{ network: SocialNetwork; accountId: string; tokenEnv: string; brand?: string }> = [];
+  try { extra = JSON.parse(env.SOCIAL_HUB_ACCOUNTS ?? "[]"); } catch { extra = []; }
+  const key = (a: { network: string; accountId: string }) => `${a.network}:${a.accountId}`;
+  const seen = new Set(extra.map(key));
+  return [...extra, ...METRICOOL_IMPORTED_ACCOUNTS.filter((a) => !seen.has(key(a)))];
 }
