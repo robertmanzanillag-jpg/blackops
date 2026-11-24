@@ -68,19 +68,29 @@ test("collectMetrics stores snapshots and analytics aggregates latest per post",
 });
 
 test("oauth: auth url has state+pkce, callback stores encrypted token, store resolves by handle", async () => {
-  const { mkdtempSync, readFileSync } = await import("node:fs");
-  const { tmpdir } = await import("node:os");
-  const dir = mkdtempSync(`${tmpdir()}/sh-`);
-  Object.assign(process.env, { SOCIAL_HUB_TOKEN_KEY: "k".repeat(32), SOCIAL_HUB_TOKENS_PATH: `${dir}/t.enc`, SOCIAL_HUB_PUBLIC_URL: "https://ops.example", SH_TIKTOK_CLIENT_KEY: "ck", SH_TIKTOK_CLIENT_SECRET: "cs" });
+  const { hydrateSocialHub, memoryBackend, kvFlush } = await import("../server/social-hub/persist");
+  const backend = memoryBackend();
+  await hydrateSocialHub(["state", "tokens"], backend);
+  Object.assign(process.env, { SOCIAL_HUB_TOKEN_KEY: "k".repeat(32), SOCIAL_HUB_PUBLIC_URL: "https://ops.example", SH_TIKTOK_CLIENT_KEY: "ck", SH_TIKTOK_CLIENT_SECRET: "cs" });
   const { buildAuthUrl, completeOAuth, oauthCredentialStore } = await import("../server/social-hub/oauth");
   const url = new URL(buildAuthUrl("tiktok"));
   assert.equal(url.searchParams.get("client_key"), "ck");
   assert.ok(url.searchParams.get("code_challenge"));
-  const f = (async (u: string) => new Response(JSON.stringify(String(u).includes("token") ? { access_token: "AT", refresh_token: "RT", expires_in: 86400 } : { data: { user: { username: "kongnightlife" } } }), { status: 200 })) as any;
+  const f = (async (u: string) => new Response(JSON.stringify(String(u).includes("token") ? { access_token: "PLAIN_TOKEN_x", refresh_token: "RT", expires_in: 86400 } : { data: { user: { username: "kongnightlife" } } }), { status: 200 })) as any;
   const rows = await completeOAuth(url.searchParams.get("state")!, "code", f);
   assert.equal(rows[0].accountId, "kongnightlife");
-  assert.ok(!readFileSync(`${dir}/t.enc`, "utf8").includes("AT"));
+  await kvFlush();
+  const persisted = await backend.read("tokens");
+  assert.ok(persisted && !persisted.includes("PLAIN_TOKEN_x"), "token is persisted encrypted");
   const store = oauthCredentialStore({ get: async () => null }, f);
-  assert.equal((await store.get("tiktok", "@kongnightlife"))?.accessToken, "AT");
+  assert.equal((await store.get("tiktok", "@kongnightlife"))?.accessToken, "PLAIN_TOKEN_x");
   await assert.rejects(completeOAuth(url.searchParams.get("state")!, "code", f));
+
+  // "Redeploy": fresh memory, same database → tokens and queue survive.
+  const { persistentSocialHubStore } = await import("../server/social-hub/scheduler");
+  persistentSocialHubStore().save({ posts: [], metrics: [{ network: "x", accountId: "1", capturedAt: "2026-01-01T00:00:00Z" }] });
+  await kvFlush();
+  await hydrateSocialHub(["state", "tokens"], backend);
+  assert.equal((await store.get("tiktok", "kongnightlife"))?.accessToken, "PLAIN_TOKEN_x");
+  assert.equal(persistentSocialHubStore().load().metrics.length, 1);
 });
