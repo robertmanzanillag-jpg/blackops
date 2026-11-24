@@ -12,7 +12,7 @@ Goal: replace Metricool. One queue for all networks — Facebook, Instagram, Thr
 | Confirmation (receipts verified by re-reading the post) + dedup | Codex | new `server/social-hub/receipts.ts`, `dedup.ts` |
 | Analytics collectors per network + summary | Claude | `server/social-hub/analytics.ts` |
 | Inbox (comments/DMs) | open | new `server/social-hub/inbox/*` |
-| OAuth connect flows + DB credential store with refresh | open | new `server/social-hub/oauth.ts` |
+| OAuth "Conectar" for 8 networks, encrypted token store, auto-refresh | Claude | `server/social-hub/oauth.ts` |
 | Drizzle tables `social_posts`, `social_metrics` (replace file store) | open | `shared/schema.ts` |
 | UI panel (calendar, composer, approvals, analytics) | Codex | `client/src/components/social-hub/*` |
 | X media upload, LinkedIn media | open | `providers.ts` — coordinate with Claude first |
@@ -38,3 +38,8 @@ Agents call in-process: `queueAgentSocialPost("factory:clippers", input)`.
 
 ## Platform approvals Robert must get (outside code)
 Meta app review (`pages_manage_posts`, `instagram_content_publish`, `threads_content_publish`), TikTok Content Posting API audit (unaudited apps post private-only), YouTube Data API quota, X API paid tier for posting, LinkedIn Community Management API, Reddit API app.
+
+## Conectar cuentas
+Env per app: `SH_META_CLIENT_ID/SECRET` (FB+IG), `SH_THREADS_CLIENT_ID/SECRET`, `SH_TIKTOK_CLIENT_KEY/SECRET`, `SH_GOOGLE_CLIENT_ID/SECRET`, `SH_X_CLIENT_ID/SECRET`, `SH_LINKEDIN_CLIENT_ID/SECRET`, `SH_REDDIT_CLIENT_ID/SECRET`, plus `SOCIAL_HUB_PUBLIC_URL` and `SOCIAL_HUB_TOKEN_KEY`.
+Redirect URI to register in every app: `<SOCIAL_HUB_PUBLIC_URL>/api/social-hub/oauth/callback`.
+Open `/api/social-hub/oauth/start/<network>` logged in as Robert. One Meta login connects every Page and its Instagram. Tokens: `data/social-hub/tokens.enc` (AES-256-GCM, git-ignored).

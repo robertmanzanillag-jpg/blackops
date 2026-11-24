@@ -1,8 +1,9 @@
 // Owner-only HTTP API for the Social Hub. Factory/office agents call getSocialHub() in-process.
 import type { Express, Request, Response } from "express";
-import { NETWORK_CAPABILITIES, type SocialPostInput, type SocialPostStatus } from "@shared/social-hub";
+import { NETWORK_CAPABILITIES, SOCIAL_NETWORKS, type SocialNetwork, type SocialPostInput, type SocialPostStatus } from "@shared/social-hub";
 import { getCurrentUserId, getSystemUserId } from "../user-context";
 import { envCredentialStore, listEnvAccounts } from "./providers";
+import { buildAuthUrl, completeOAuth, loadTokens, oauthConfigured, oauthCredentialStore, OAUTH_APPS, removeToken } from "./oauth";
 import { fileSocialHubStore, SocialHub, SocialHubValidationError } from "./scheduler";
 
 let hub: SocialHub | undefined;
@@ -10,7 +11,7 @@ let hub: SocialHub | undefined;
 export function getSocialHub(): SocialHub {
   return hub ||= new SocialHub({
     store: fileSocialHubStore(),
-    credentials: envCredentialStore(),
+    credentials: oauthCredentialStore(envCredentialStore()),
     publishingEnabled: process.env.SOCIAL_HUB_PUBLISHING_ENABLED === "true",
     autoApproveBrands: (process.env.SOCIAL_HUB_AUTO_APPROVE_BRANDS ?? "").split(",").map((s) => s.trim()).filter(Boolean),
   });
@@ -55,5 +56,36 @@ export function registerSocialHubRoutes(app: Pick<Express, "get" | "post">, deps
   app.post("/api/social-hub/posts/:id/publish-now", h((req) => getHub().publishNow(String(req.params.id))));
   app.get("/api/social-hub/analytics", h((req) => getHub().analytics(Number(req.query.days ?? 30))));
   app.post("/api/social-hub/analytics/refresh", h(() => getHub().collectMetrics()));
+  // ---- Conectar cuentas ----
+  const asNetwork = (v: unknown): SocialNetwork => {
+    if (!SOCIAL_NETWORKS.includes(v as SocialNetwork)) throw new Error("Red desconocida");
+    return v as SocialNetwork;
+  };
+  app.get("/api/social-hub/connections", h(() => {
+    let tokens: ReturnType<typeof loadTokens> = [];
+    try { tokens = loadTokens(); } catch { tokens = []; }
+    return {
+      apps: Object.fromEntries(SOCIAL_NETWORKS.map((n) => [n, { ready: oauthConfigured(n), needs: [OAUTH_APPS[n].clientIdEnv, OAUTH_APPS[n].clientSecretEnv] }])),
+      connected: tokens.map((t) => ({ network: t.network, accountId: t.accountId, label: t.label, connectedAt: t.connectedAt, expiresAt: t.expiresAt })),
+    };
+  }));
+  app.get("/api/social-hub/oauth/start/:network", async (req, res) => {
+    if (!isOwner(req)) return res.status(403).send("Solo el propietario puede conectar cuentas.");
+    try { res.redirect(buildAuthUrl(asNetwork(req.params.network))); }
+    catch (e) { res.status(400).send(e instanceof Error ? e.message : "Error"); }
+  });
+  // The callback is protected by the one-time state created in /start (which is owner-only).
+  app.get("/api/social-hub/oauth/callback", async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+    try {
+      if (req.query.error) throw new Error(String(req.query.error_description ?? req.query.error));
+      const rows = await completeOAuth(String(req.query.state ?? ""), String(req.query.code ?? ""));
+      res.type("html").send(`<meta charset="utf-8"><h2>Conectado ✅</h2><ul>${rows.map((r) => `<li>${esc(r.network)}: ${esc(r.label)}</li>`).join("")}</ul><p>Ya puedes cerrar esta pestaña.</p>`);
+    } catch (e) {
+      res.status(400).type("html").send(`<meta charset="utf-8"><h2>No se pudo conectar</h2><p>${esc(e instanceof Error ? e.message : "Error")}</p>`);
+    }
+  });
+  app.post("/api/social-hub/connections/:network/:accountId/disconnect", h((req) => { removeToken(asNetwork(req.params.network), String(req.params.accountId)); return { ok: true }; }));
   app.get("/api/social-hub/best-time", h((req) => ({ at: getHub().bestTime(String(req.query.networks ?? "instagram").split(",") as any).toISOString() })));
 }

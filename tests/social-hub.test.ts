@@ -66,3 +66,21 @@ test("collectMetrics stores snapshots and analytics aggregates latest per post",
   assert.equal(a.byNetwork.instagram.likes, 5);
   assert.equal(a.topPosts[0].network, "tiktok");
 });
+
+test("oauth: auth url has state+pkce, callback stores encrypted token, store resolves by handle", async () => {
+  const { mkdtempSync, readFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const dir = mkdtempSync(`${tmpdir()}/sh-`);
+  Object.assign(process.env, { SOCIAL_HUB_TOKEN_KEY: "k".repeat(32), SOCIAL_HUB_TOKENS_PATH: `${dir}/t.enc`, SOCIAL_HUB_PUBLIC_URL: "https://ops.example", SH_TIKTOK_CLIENT_KEY: "ck", SH_TIKTOK_CLIENT_SECRET: "cs" });
+  const { buildAuthUrl, completeOAuth, oauthCredentialStore } = await import("../server/social-hub/oauth");
+  const url = new URL(buildAuthUrl("tiktok"));
+  assert.equal(url.searchParams.get("client_key"), "ck");
+  assert.ok(url.searchParams.get("code_challenge"));
+  const f = (async (u: string) => new Response(JSON.stringify(String(u).includes("token") ? { access_token: "AT", refresh_token: "RT", expires_in: 86400 } : { data: { user: { username: "kongnightlife" } } }), { status: 200 })) as any;
+  const rows = await completeOAuth(url.searchParams.get("state")!, "code", f);
+  assert.equal(rows[0].accountId, "kongnightlife");
+  assert.ok(!readFileSync(`${dir}/t.enc`, "utf8").includes("AT"));
+  const store = oauthCredentialStore({ get: async () => null }, f);
+  assert.equal((await store.get("tiktok", "@kongnightlife"))?.accessToken, "AT");
+  await assert.rejects(completeOAuth(url.searchParams.get("state")!, "code", f));
+});
