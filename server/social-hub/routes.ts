@@ -24,7 +24,12 @@ export function queueAgentSocialPost(agent: string, input: Omit<SocialPostInput,
 let timer: NodeJS.Timeout | undefined;
 export function startSocialHubScheduler(intervalMs = 60_000) {
   if (timer || process.env.SOCIAL_HUB_SCHEDULER !== "on") return;
-  timer = setInterval(() => { getSocialHub().runDue().catch((e) => console.error("[social-hub]", e?.message ?? e)); }, intervalMs);
+  let tick = 0;
+  timer = setInterval(() => {
+    // Metrics every 6 hours (360 ticks) to stay inside API quotas.
+    if (++tick % 360 === 0) getSocialHub().collectMetrics().catch((e) => console.error("[social-hub metrics]", e?.message ?? e));
+    getSocialHub().runDue().catch((e) => console.error("[social-hub]", e?.message ?? e));
+  }, intervalMs);
   timer.unref?.();
 }
 
@@ -48,5 +53,7 @@ export function registerSocialHubRoutes(app: Pick<Express, "get" | "post">, deps
   app.post("/api/social-hub/posts/:id/cancel", h((req) => getHub().cancel(String(req.params.id))));
   app.post("/api/social-hub/posts/:id/reschedule", h((req) => getHub().reschedule(String(req.params.id), String(req.body?.publishAt))));
   app.post("/api/social-hub/posts/:id/publish-now", h((req) => getHub().publishNow(String(req.params.id))));
+  app.get("/api/social-hub/analytics", h((req) => getHub().analytics(Number(req.query.days ?? 30))));
+  app.post("/api/social-hub/analytics/refresh", h(() => getHub().collectMetrics()));
   app.get("/api/social-hub/best-time", h((req) => ({ at: getHub().bestTime(String(req.query.networks ?? "instagram").split(",") as any).toISOString() })));
 }

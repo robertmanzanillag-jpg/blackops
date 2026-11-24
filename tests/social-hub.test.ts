@@ -47,3 +47,22 @@ test("best time is in the future on the hour", () => {
   const at = hub.bestTime(["tiktok"]);
   assert.ok(at > now && at.getMinutes() === 0);
 });
+
+test("collectMetrics stores snapshots and analytics aggregates latest per post", async () => {
+  const hub = new SocialHub({
+    store: memorySocialHubStore(), credentials: creds, publishingEnabled: true, now: () => new Date("2026-02-01T00:00:00Z"),
+    providers: { instagram: { network: "instagram", publish: async () => ({ externalId: "ig9" }) }, tiktok: { network: "tiktok", publish: async () => ({ externalId: "tt9" }) } },
+    fetchImpl: (async (url: string) => new Response(JSON.stringify(
+      String(url).includes("tiktok") ? { data: { videos: [{ view_count: 100, like_count: 10, comment_count: 1, share_count: 2 }] } }
+        : { data: [{ name: "views", values: [{ value: 50 }] }, { name: "likes", values: [{ value: 5 }] }] },
+    ), { status: 200 })) as any,
+  });
+  hub.create({ ...base, createdBy: "robert", publishAt: "2026-01-31T00:00:00Z" });
+  await hub.runDue();
+  const r = await hub.collectMetrics();
+  assert.equal(r.collected, 2);
+  const a = hub.analytics();
+  assert.equal(a.byNetwork.tiktok.views, 100);
+  assert.equal(a.byNetwork.instagram.likes, 5);
+  assert.equal(a.topPosts[0].network, "tiktok");
+});

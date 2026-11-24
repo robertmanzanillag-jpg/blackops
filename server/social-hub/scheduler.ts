@@ -11,6 +11,7 @@ import {
   type SocialPostInput,
   type SocialPostStatus,
 } from "@shared/social-hub";
+import { collectPostMetrics, summarizeMetrics } from "./analytics";
 import { SOCIAL_PROVIDERS, SocialPublishError, type FetchLike, type SocialCredentialStore, type SocialProvider } from "./providers";
 
 export interface SocialHubStore {
@@ -141,6 +142,20 @@ export class SocialHub {
     // Keep the last 20k snapshots.
     if (state.metrics.length > 20000) state.metrics = state.metrics.slice(-20000);
     this.opts.store.save(state);
+  }
+
+  /** Pulls fresh metrics for posts published in the last `days` days and stores them. */
+  async collectMetrics(days = 30): Promise<{ collected: number; errors: string[] }> {
+    const since = new Date(this.now().getTime() - days * 86_400_000).toISOString();
+    const posts = this.opts.store.load().posts.filter((p) => (p.status === "published" || p.status === "partially_published") && p.publishAt >= since);
+    const { snapshots, errors } = await collectPostMetrics(posts, (n, a) => this.opts.credentials.get(n, a), this.fetchImpl, this.now());
+    if (snapshots.length) this.recordMetrics(snapshots);
+    return { collected: snapshots.length, errors };
+  }
+
+  analytics(days = 30) {
+    const since = new Date(this.now().getTime() - days * 86_400_000).toISOString();
+    return summarizeMetrics(this.opts.store.load().metrics, since);
   }
 
   /** Picks the next slot (>= 15 min from now) at the historically best weekday/hour for these networks. */

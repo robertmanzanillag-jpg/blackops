@@ -10,11 +10,11 @@ Goal: replace Metricool. One queue for all networks — Facebook, Instagram, Thr
 | HTTP API | Claude | `server/social-hub/routes.ts` |
 | Factory/BlackRoom integration (replace `blackroom-metricool-bridge`, clippers → hub) | Codex | new `server/social-hub/factory-bridge.ts` + callers |
 | Confirmation (receipts verified by re-reading the post) + dedup | Codex | new `server/social-hub/receipts.ts`, `dedup.ts` |
-| Analytics collectors per network → `recordMetrics()` | open | new `server/social-hub/analytics/*` |
+| Analytics collectors per network + summary | Claude | `server/social-hub/analytics.ts` |
 | Inbox (comments/DMs) | open | new `server/social-hub/inbox/*` |
 | OAuth connect flows + DB credential store with refresh | open | new `server/social-hub/oauth.ts` |
 | Drizzle tables `social_posts`, `social_metrics` (replace file store) | open | `shared/schema.ts` |
-| UI panel (calendar, composer, approvals, analytics) | open | `client/src/components/social-hub/*` |
+| UI panel (calendar, composer, approvals, analytics) | Codex | `client/src/components/social-hub/*` |
 | X media upload, LinkedIn media | open | `providers.ts` — coordinate with Claude first |
 
 ## Queue contract
@@ -34,7 +34,7 @@ Agents call in-process: `queueAgentSocialPost("factory:clippers", input)`.
 - `SOCIAL_HUB_ACCOUNTS='[{"network":"instagram","accountId":"<ig_user_id>","tokenEnv":"IG_TOKEN_BR"}]'` — tokens live only in env/secrets.
 
 ## API (owner-only)
-`GET /api/social-hub/networks` · `GET|POST /api/social-hub/posts` · `POST /api/social-hub/posts/:id/{approve,cancel,reschedule,publish-now}` · `GET /api/social-hub/best-time?networks=tiktok,instagram`
+`GET /api/social-hub/networks` · `GET|POST /api/social-hub/posts` · `POST /api/social-hub/posts/:id/{approve,cancel,reschedule,publish-now}` · `GET /api/social-hub/analytics?days=30` → `{byNetwork, topPosts}` · `POST /api/social-hub/analytics/refresh` · `GET /api/social-hub/best-time?networks=tiktok,instagram`
 
 ## Platform approvals Robert must get (outside code)
 Meta app review (`pages_manage_posts`, `instagram_content_publish`, `threads_content_publish`), TikTok Content Posting API audit (unaudited apps post private-only), YouTube Data API quota, X API paid tier for posting, LinkedIn Community Management API, Reddit API app.
