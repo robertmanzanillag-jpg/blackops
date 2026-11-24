@@ -76,14 +76,14 @@ test("oauth: auth url has state+pkce, callback stores encrypted token, store res
   const url = new URL(buildAuthUrl("tiktok"));
   assert.equal(url.searchParams.get("client_key"), "ck");
   assert.ok(url.searchParams.get("code_challenge"));
-  const f = (async (u: string) => new Response(JSON.stringify(String(u).includes("token") ? { access_token: "AT", refresh_token: "RT", expires_in: 86400 } : { data: { user: { username: "kongnightlife" } } }), { status: 200 })) as any;
+  const f = (async (u: string) => new Response(JSON.stringify(String(u).includes("token") ? { access_token: "PLAIN_TOKEN_x", refresh_token: "RT", expires_in: 86400 } : { data: { user: { username: "kongnightlife" } } }), { status: 200 })) as any;
   const rows = await completeOAuth(url.searchParams.get("state")!, "code", f);
   assert.equal(rows[0].accountId, "kongnightlife");
   await kvFlush();
   const persisted = await backend.read("tokens");
-  assert.ok(persisted && !persisted.includes("AT"), "token is persisted encrypted");
+  assert.ok(persisted && !persisted.includes("PLAIN_TOKEN_x"), "token is persisted encrypted");
   const store = oauthCredentialStore({ get: async () => null }, f);
-  assert.equal((await store.get("tiktok", "@kongnightlife"))?.accessToken, "AT");
+  assert.equal((await store.get("tiktok", "@kongnightlife"))?.accessToken, "PLAIN_TOKEN_x");
   await assert.rejects(completeOAuth(url.searchParams.get("state")!, "code", f));
 
   // "Redeploy": fresh memory, same database → tokens and queue survive.
@@ -91,6 +91,6 @@ test("oauth: auth url has state+pkce, callback stores encrypted token, store res
   persistentSocialHubStore().save({ posts: [], metrics: [{ network: "x", accountId: "1", capturedAt: "2026-01-01T00:00:00Z" }] });
   await kvFlush();
   await hydrateSocialHub(["state", "tokens"], backend);
-  assert.equal((await store.get("tiktok", "kongnightlife"))?.accessToken, "AT");
+  assert.equal((await store.get("tiktok", "kongnightlife"))?.accessToken, "PLAIN_TOKEN_x");
   assert.equal(persistentSocialHubStore().load().metrics.length, 1);
 });
